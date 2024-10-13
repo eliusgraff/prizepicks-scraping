@@ -1,8 +1,13 @@
 from selenium import webdriver
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
 import helper
+import time
 #import httpx #- Not used in current implementation, could be added back in  future
 
-def make_selenium_request (league, chromedriver_path = None):
+def make_selenium_request (league, chromedriver_path = None, tmo_value = 5):
     '''
     Function to make a call to get lines/spreads from prizepicks. Function takes in a league name and makes a call to PrizePicks API to get all
     the current bets for that given league. Function requires chromedriver be installed
@@ -10,6 +15,7 @@ def make_selenium_request (league, chromedriver_path = None):
     Function has a few ways it can fail and report bad status:
         1 - invalid league
         2 - invalid chromedriver path
+        3 - timeout loading webpage
     '''
     league = validate_league(league)
     if league is None:
@@ -22,6 +28,7 @@ def make_selenium_request (league, chromedriver_path = None):
     api_call =  f"https://api.prizepicks.com/projections?league_id={league}&per_page={page_num}&single_stat={single_stat}&game_mode={game_mode}"
     #can I make this headless or go faster at least?
     ops = webdriver.ChromeOptions()
+    ops.add_experimental_option('excludeSwitches', ['enable-logging']) #may add this back in future, but for now this is just annoying
     #ops.add_argument("--headless=new")
     cd_info = chromedriver_path if chromedriver_path is not None else helper.get_secret("chromedriver")
     if cd_info.get('path') is None:
@@ -29,6 +36,10 @@ def make_selenium_request (league, chromedriver_path = None):
         return 2
     session = webdriver.Chrome(cd_info['path'], options=ops)
     session.get(api_call)
+    try:
+        tmo = WebDriverWait(session, tmo_value).until(EC.presence_of_element_located((By.XPATH, '/html/body/pre')))
+    except TimeoutException:
+        return 3
     source = session.page_source
     session.quit()
     return source

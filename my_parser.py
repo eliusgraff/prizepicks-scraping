@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 import json
 from datetime import datetime
+import prizepicks_db as ppdb
 
 def parse_webpage(webpage):
     '''
@@ -61,6 +62,7 @@ def parse_webpage(webpage):
         my_data = parse_data(item, data_order)
         all_data.append(my_data)
     print(f"Parsed 'data' with {len(all_data)} entries")
+
     '''---After the 'data' section of the json, it goes to the 'included' tag which can contain many different tags---'''
 
     '''---Defining order for all the the types of tags within the 'included' tag---'''
@@ -111,8 +113,8 @@ def parse_webpage(webpage):
         '''---Adds the parsed tag to the big data dictionary to store before sending to mySQL---'''
 
         '''
-        'league' tag can include additional list of data, but not always. In the case that the list of data is included in
-        there, this must be handled uniquely to get the list of data also saved in the database. This code handles that case.
+        'league' and 'stat_type' tags can include additional list of data, but not always. In the case that the list of data is included in
+        there, this must be handled uniquely to get the list of data also saved in the database. This code handles those cases.
         '''
         if my_type == "league" and parsed_include[-1] is not None:
             league_data = parsed_include[-1]
@@ -122,13 +124,33 @@ def parse_webpage(webpage):
             for val in data_list:
                 included_tag_values['league_data'].append([league_id, timestamp, val])
             parsed_include[-1] = True
+        
+        elif my_type == "stat_type":
+            if isinstance(parsed_include[1], list) and len(parsed_include) > 0:
+                ignored_leagues = parsed_include[1]
+                for league_num in ignored_leagues:
+                    '''
+                    To find this data in the SQL db, the 'lfg_ignored_leagues' table rows will keep track of the stat_type id and
+                    the league number this way it can be recalled based on the stat_type id or vice versa
+                    '''
+                    lfg_row = [parsed_include[0], league_num]
+                    included_tag_values['lfg_ignored_leagues'].append(lfg_row)
+                parsed_include[1] = True
+
+            else: parsed_include[1] = None
+
 
         included_tag_values[my_type].append(parsed_include)
         my_tot = 0
-    for _,v in included_tag_values.items():
+    
+    '''
+    for k,v in included_tag_values.items():
+        for row in v:
+            assert len(row) == len(included_tag_orders[k])
         my_tot+=len(v)
     print(f"Parsed 'include' with {my_tot} entries")
-
+    '''
+    ppdb.send_to_sql(data_order, data_list, included_tag_orders, included_tag_values)
     return True
 
 def parse_included(my_tag, order):
@@ -137,7 +159,6 @@ def parse_included(my_tag, order):
     a list 'order' of how the tag data should be ordered for insertion into mysql. The function returns a list of the values from the 
     tag in the order defined by the 'order' list.
     '''
-
     '''
     Using a dict to store the data as it is parsed until ordering at the very end of the function. 'not_found' is used to make 
     sure that all of the items that are expected to be in the tag, are found before sending to mysql. This will also help for validation
@@ -247,8 +268,8 @@ def parse_data(data_item, order):
             not_found.remove(attr)
 
     '''---Parsing relationships sub-dict data and data from its sub-dicts---'''
-    relationship_dicts = ["league", "new_player" ]
-    relationship_data = ["duration", "score"]
+    relationship_dicts = ["league", "new_player", "duration"]
+    relationship_data = ["score"]
     for sub_dict in relationship_dicts:
         my_dict[sub_dict] = data_item['relationships'][sub_dict]['data'].get('id')
         not_found.remove(sub_dict)
@@ -270,14 +291,17 @@ def parse_data(data_item, order):
     This code block is just for dev/validation purposes it just prints out anything that was expected by not seen by the parser
     '''
     if len(not_found) > 0:
-        '''---Since some things are not guarunteed to be in a data tag, this makes sure it is only notifying tester if something expected is missing---'''
-        still_print = False
-        for item in not_found: 
-            if item not in not_promised:
-                still_print = True
-                break
+        '''---Since some things are not garunteed to be in a data tag, this makes sure it is only notifying tester if something expected is missing---'''
+        to_print = []
+        for item in not_found:
+            '''---For combo projections where players are on differnt teams, a game_id may not be assigned, so this accounts for that case---'''
+            if item == 'game_id' and data_item['attributes']['stat_type'].find("(Combo)") >-1:
+                continue
+            elif item not in not_promised:
+                to_print.append(item)
+
         '''---Printing out everything in the tag and all the things missing from the tag---'''
-        if still_print:
+        if len(to_print) > 0:
             print(f"\n\n------------From below tag------------\n")
             for key, val in data_item.items(): print(f"{key}\t{val}")
             print("\n-----------Could not find data for the following-----------\n")
@@ -303,15 +327,14 @@ def valid_wp(wp):
 
     Funtion returns beautifulsoup instance if the wp looks parsable and false if not.
     '''
-
-
     try:
         to_validate = BeautifulSoup(wp, "html.parser")
     except:
         return False
-    
+
     pre = to_validate.find("pre")
-    if pre.name != "pre":
+
+    if pre is None or pre.name != "pre":
         print("Expected to be 'pre' tag")
         return False
     json_data = pre.next_element
