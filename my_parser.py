@@ -110,7 +110,7 @@ def parse_webpage(webpage):
             print("Review needed. Exiting....")
             exit()
 
-        '''---Adds the parsed tag to the big data dictionary to store before sending to mySQL---'''
+        '''---Adding the parsed tag to the big data dictionary to store before sending to mySQL---'''
 
         '''
         'league' and 'stat_type' tags can include additional list of data, but not always. In the case that the list of data is included in
