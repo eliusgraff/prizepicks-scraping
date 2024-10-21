@@ -54,14 +54,14 @@ def parse_webpage(webpage):
     ]
 
     '''---Define large data structure where all the parsed data will reside until it is sent to mySQL---'''
-    all_data = []
+    data_values = []
 
     print("Parsing 'data' tags...")
     for item in json_data['data']:
         '''---For each of the tags in the 'data' tag, send them all to the 'data' parser to get the necessary data from the json---'''
         my_data = parse_data(item, data_order)
-        all_data.append(my_data)
-    print(f"Parsed 'data' with {len(all_data)} entries")
+        data_values.append(my_data)
+    print(f"Parsed 'data' with {len(data_values)} entries")
 
     '''---After the 'data' section of the json, it goes to the 'included' tag which can contain many different tags---'''
 
@@ -143,15 +143,14 @@ def parse_webpage(webpage):
         included_tag_values[my_type].append(parsed_include)
         my_tot = 0
     
-    '''
     for k,v in included_tag_values.items():
         for row in v:
             assert len(row) == len(included_tag_orders[k])
         my_tot+=len(v)
     print(f"Parsed 'include' with {my_tot} entries")
-    '''
-    ppdb.send_to_sql(data_order, data_list, included_tag_orders, included_tag_values)
-    return True
+    
+    
+    return ppdb.send_to_sql(data_order, data_values, included_tag_orders, included_tag_values)
 
 def parse_included(my_tag, order):
     '''

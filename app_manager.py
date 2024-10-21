@@ -74,6 +74,14 @@ def validate():
     '''---Testing errors from bad caller---'''
     print(">>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF WP1<<<<<<<<<<<<<<")
     wp1 = get_wp_example("example_wp.html", local = True, ow = False, league="NFL")
+    
+    try:
+        if not my_parser.parse_webpage(wp1):
+            raise Exception
+    except Exception as E:
+        print("Did not pass parsing of wp1")
+        raise E
+    exit()
     print("\n>>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF WP2<<<<<<<<<<<<<<")
     wp2 = get_wp_example("example_wp_inflight.html", local = True, ow = False, league="NFL")
     print("\n>>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF API1<<<<<<<<<<<<<<")

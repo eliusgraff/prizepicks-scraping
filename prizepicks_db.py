@@ -113,6 +113,10 @@ def send_to_sql(data_cols, data_values, includes_cols, include_values):
     
     '''---Sending the values for the 'data' table to mySQL---'''
     list_to_data_table(data_cols, data_values, cursor)
+    conn.commit()
+    conn.close()
+    print("Completed adding to data table, check to see if things look good")
+    exit()
 
     '''---Going through all the includes and adding those now---'''
     for name, cols in includes_cols.items():
@@ -122,11 +126,17 @@ def send_to_sql(data_cols, data_values, includes_cols, include_values):
     #I should look into what it best practive and when to commit the sql executions I think I like doing it at the end so that if something goes wrong then just nothing is added and it's no problem
     conn.commit()
     conn.close()
+    return True
 
 def read_query(cursor, query):
-    cursor.execute(query)
-    result = cursor.fetchall()
-    return result
+    
+    try:
+        cursor.execute(query)
+        result = cursor.fetchall()
+        return result
+    except Exception as E:
+        print(f"Attempting query: {query}\nBut error occured")
+        raise E
 
 def execute_query(cursor, query):
     cursor.execute(query)
@@ -149,27 +159,45 @@ def list_to_data_table( headers, data, cursor):
 
     '''
     '''---Setting up vairables needed for function---'''
-    table = 'data'
+    reserved_words = {
+        "status",
+        "rank",
+        "description",
+        "type"
+        }
+
+    allow_change = {
+        "board_time", 
+        "rank", 
+        "updated_at"
+        }
+
+    table = 'my_data'
+    #print(f"Headers: {headers}")
+    #Can this be done with list comprehension?
+    fix_headers = []
+    for header in headers:
+        if header in reserved_words: fix_headers.append(f"my_{header}")
+        else: fix_headers.append(header)
+    
     id_index = headers.index("id")
     line_index = headers.index("line_score")
+
+    '''---Make sure columns are aligned with DB---'''
     cols_query = f"SHOW COLUMNS FROM {table};"
     cursor.execute(cols_query)
     cols_list = cursor.fetchall()
-    allow_change = {"board_time", "rank", "updated_at"}
-
-    for each in cols_list:
-        print(each)
-    input("Make sure response is as expected")
-
-    headers = headers + ['version','islatest']    
-    headers_set = set(headers)
-    for each in cols_list:
-        assert each[0] in headers_set
-        headers_set.remove(each[0])
-    if len(headers_set) > 0:
-        print(f"This is not allowed! Headers do not match col names\nheaders:{headers}\nCol names:{cols_list}\nStuck in header_set:{headers_set}")
-    assert len(headers_set) == 0
-    header_tuple = tuple(headers)
+    try:
+        fix_headers = fix_headers + ['my_version','islatest'] 
+        assert len(fix_headers) == len(cols_list)   
+        for i, v in enumerate(cols_list):
+            assert v[0] == fix_headers[i]
+    except AssertionError as AE:
+        print(f"Item comparison:\n{v[0]}\n{fix_headers[i]}")
+        print(f"Fix headers:\n{fix_headers}")
+        print(f"Col list:\n{cols_list}")
+        raise AE
+    #print("Col alignment validated!")
 
     for row in data:
         '''
@@ -177,28 +205,34 @@ def list_to_data_table( headers, data, cursor):
             If there is no existing entry, then add it right in. 
             Elif there exists entry for incoming id already, check if any values have changed
                 if important values have changed - add new row to the db and set old one to not being latest and update version number of the new one
+
         '''
         '''---Checking to see what already exists in the db---'''
-        my_query = f"SELECT {header_tuple} FROM {table} WHERE ISLATEST = TRUE AND ID = {row[id_index]};"
+        #print(f"Adding in row:\n{row}")
+        my_query = f"SELECT * FROM {table} WHERE ISLATEST = TRUE AND ID = {row[id_index]};"
         existing_data = read_query(cursor, my_query)
+        '''if len(existing_data) == 0:
+            print("Nothing existing for this one")
         for each in existing_data:
-            print(each)
-        input("Does this look right?")
-        write_query = None
-
+            print(each)'''
+        write_query = f"INSERT INTO {table} VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);"
         if len(existing_data) == 0:
             '''
             If there is nothing already in the DB matching the data id, insert the values straight into the DB. Since this is the first time this
             data is inserted, adding [0,True] to the end of the row to align with the 'version' and 'islatest' columns
             '''
+            #there has to be a better way here
             new_row = row + [0,True]
-            write_query = f"INSERT INTO {table} {header_tuple} VALUES {tuple(new_row)};"
-            cursor.execute(write_query)
+            try:
+                cursor.execute(write_query,tuple(new_row))
+            except Exception as E:
+                print(f"FAILED SQL QUERY:\n{write_query}")
+                raise(E)
             add_new_line_score( row[id_index], row[headers.index("projection_type")], row[line_index], cursor )
 
-        elif len(existing_data) > 0:
+        elif len(existing_data) > 1:
             '''---Since there should only be one row with a target id that is also the latest, this check to make sure that is enforced---'''
-            print(f"Two instances of 'islatest' for same id:\nExisting:{existing_data}\nIncoming:{new_row}")
+            print(f"Two instances of 'islatest' for same id:\nExisting:\n{existing_data}\nIncoming:\n{row}")
             print("This is unexpected and should not be possible, plz fix")
             assert len(existing_data) < 2
         
@@ -208,8 +242,9 @@ def list_to_data_table( headers, data, cursor):
             is not expected to regularly change, then the 'islatest' version of the existing row must be changed to False and the 'version' and islatest'
             columns of the incoming row must be set to be n+1 and True
             '''
+            existing_row = existing_data[0]
             for i, val in enumerate(row):
-                if val != existing_data[i]:
+                if val != existing_row[i]:
                     '''
                     There are some items that I expect may change over time and don't care to chart them this is the logic for determining if I need to
                     create a new 'version' of a row to input into the db as well as handle the case where the line spread changes wihtout having to create 
@@ -221,7 +256,7 @@ def list_to_data_table( headers, data, cursor):
                         raises the flag that the score did change so that way the latest version of the table can reflect that
                         '''
                         add_new_line_score( row[id_index], row[headers.index("projection_type")], val, cursor )
-                        update_score = f"UPDATE {table} SET line_score = {val} WHERE islatest = TRUE;"
+                        update_score = f"UPDATE {table} SET line_score = {val} WHERE my_id = {row[id_index]} AND islatest = TRUE;"
                         cursor.execute(update_score)
 
                     elif headers[i] not in allow_change:
@@ -230,21 +265,20 @@ def list_to_data_table( headers, data, cursor):
                         version needs to be inserted into the db. Just for the sake of simplicity, as soon as one unallowed change is made, we will update the whole row
                         immedeatley rather than try and keep track of all the individual cols that changed.
                         '''
-                        if i < line_index and row[line_index] != existing_data[line_index]:
+                        if i < line_index and row[line_index] != existing_row[line_index]:
                             '''
                             In the case where a field changes that is not allowed to change before the program gets to the 'line_score' field then any changes in 
                             that would not be reflected in the table that tracks the expected changes of that value. This code block checks if there are any changes 
                             to be made and makes them if needed before the whole line is updated
                             '''
-                            add_new_line_score( row[id_index], row[headers.index("projection_type")], existing_data[line_index], cursor )
+                            add_new_line_score( row[id_index], row[headers.index("projection_type")], existing_row[line_index], cursor )
                         
                         '''---Getting the version number for the new entry to update existing row and add in new row for the latest version---'''
-                        new_version = existing_data[headers.index('version')] + 1
+                        new_version = existing_row[fix_headers.index('my_version')] + 1
                         new_row = row + [new_version, True]
                         update_existing = f"UPDATE {table} SET islatest = FALSE WHERE islatest = TRUE AND id = {row[id_index]};"
-                        insert_query = f"INSERT INTO {table} {header_tuple} VALUES {tuple(new_row)};"
                         cursor.execute(update_existing)
-                        cursor.execute(insert_query)
+                        cursor.execute(write_query, tuple(new_row))
                         break
 
 def add_new_line_score( bet_id, bet_type, spread, cursor):
@@ -253,7 +287,15 @@ def add_new_line_score( bet_id, bet_type, spread, cursor):
     the whole history of how those change can be kept and analyzed
     '''
     col_names = ["bet_id", "bet_type", "spread", "time"]
-    vals = [bet_id, bet_type, spread, "NOW()"]
-    my_query = f"INSERT INTO spread_history {tuple(col_names)} VALUES {tuple(vals)}"
-    cursor.execute(my_query)
+    vals = [bet_id, bet_type, spread]
+    my_query = f"INSERT INTO spread_history VALUES (%s,%s,%s,NOW())"
+    cursor.execute(my_query, vals)
 
+def list_to_string(my_list):
+    raise NotImplementedError
+    to_return = ""
+    for string in my_list:
+        to_return += str(string) + ", "
+    to_return = to_return[:-2]
+    print(f"Converted string into: {to_return}")
+    return to_return
