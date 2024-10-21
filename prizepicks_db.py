@@ -1,5 +1,6 @@
 import mysql.connector
 import helper
+from datetime import datetime
 
 #Long term, this should not need to be root user
 def root_login():
@@ -168,18 +169,37 @@ def list_to_data_table( headers, data, cursor):
 
     allow_change = {
         "board_time", 
-        "rank", 
-        "updated_at"
+        "my_rank", 
+        "updated_at",
+        "line_score"
         }
 
+    '''---Some fields I expect to be datetimes, so if they are given, parse them as datetime---'''
+    my_dts={
+        "board_time",
+        "end_time",
+        "start_time",
+        "updated_at"
+    }
+
+    '''---Some fields are boolean, but SQL returns them as 1 or 0, so I need to know which ones I need to cast correctly---'''
+    my_bools = {
+        "islatest",
+        "hr_20",
+        "in_game",
+        "is_live",
+        "is_promo",
+        "refundable"
+    }
+    insert_list = list()
+    insert_line_score = list()
+    updated_ids = set()
     table = 'my_data'
-    #print(f"Headers: {headers}")
     #Can this be done with list comprehension?
     fix_headers = []
     for header in headers:
         if header in reserved_words: fix_headers.append(f"my_{header}")
         else: fix_headers.append(header)
-    
     id_index = headers.index("id")
     line_index = headers.index("line_score")
 
@@ -187,8 +207,8 @@ def list_to_data_table( headers, data, cursor):
     cols_query = f"SHOW COLUMNS FROM {table};"
     cursor.execute(cols_query)
     cols_list = cursor.fetchall()
+    fix_headers = fix_headers + ['my_version','islatest'] 
     try:
-        fix_headers = fix_headers + ['my_version','islatest'] 
         assert len(fix_headers) == len(cols_list)   
         for i, v in enumerate(cols_list):
             assert v[0] == fix_headers[i]
@@ -197,44 +217,55 @@ def list_to_data_table( headers, data, cursor):
         print(f"Fix headers:\n{fix_headers}")
         print(f"Col list:\n{cols_list}")
         raise AE
-    #print("Col alignment validated!")
+
+    '''---Pull in all existing rows from the db into a dict for quick recall---'''
+    id_list = [values[id_index] for values in data]
+    my_query = f"SELECT * FROM {table} WHERE ISLATEST = TRUE AND ID IN {tuple(id_list)};"    
+    existing_data = read_query(cursor, my_query)
+    data_dict = dict()
+
+    '''---Making sure that the data in the db already does not have double-up of same ids that are 'latest'---'''
+    for row in existing_data:
+        if row[id_index] in existing_data:
+            '''
+            Since there should only be one row with a target id that is also the latest, this check to make sure that is enforced. Since this should not be possible
+            I don't want to spend a lot of time on this, but in the case it does pop up, then this will catch is and whatever is causing it should be patched but if
+            nothing else this conflict should be handled logically
+            '''
+            print(f"Two instances of 'islatest' for same id:\nExisting:\n{existing_data}\nIncoming:\n{row}")
+            print("This is unexpected and should not be possible, plz fix")
+            assert row[id_index] not in existing_data
+
+        data_dict[row[id_index]] = row
 
     for row in data:
+        '''
+        Looping through each of the incoming rows of parsed data to check if they need to be inserted into the db or if existing rows need to be updated
+        '''
+        row_id = row[id_index]
+        if row_id in updated_ids:
+            '''---Cheecking to make sure same id is not in to be sent into DB  twice---'''
+            print(f"THIS IS UNEXPECTED AND SHOULD NOT BE ABLE TO HAPPEN. THIS IS SECOND TIME THIS ID IS UPDATED IN THE SAME API REQUEST:\n{row}")
+            print("For now this will just be for refernce but if there is a case where this can happen, then this will need to be handled logically")
+            input("Skipping this one, press enter to continue")
+            continue
+        updated_ids.add(row_id)
         '''
         Go through each row of data passed into the function and check to see if there already existing entry in the db for it. 
             If there is no existing entry, then add it right in. 
             Elif there exists entry for incoming id already, check if any values have changed
                 if important values have changed - add new row to the db and set old one to not being latest and update version number of the new one
-
         '''
         '''---Checking to see what already exists in the db---'''
-        #print(f"Adding in row:\n{row}")
-        my_query = f"SELECT * FROM {table} WHERE ISLATEST = TRUE AND ID = {row[id_index]};"
-        existing_data = read_query(cursor, my_query)
-        '''if len(existing_data) == 0:
-            print("Nothing existing for this one")
-        for each in existing_data:
-            print(each)'''
-        write_query = f"INSERT INTO {table} VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);"
-        if len(existing_data) == 0:
+        
+        if data_dict.get(row_id) is None:
             '''
             If there is nothing already in the DB matching the data id, insert the values straight into the DB. Since this is the first time this
             data is inserted, adding [0,True] to the end of the row to align with the 'version' and 'islatest' columns
             '''
-            #there has to be a better way here
             new_row = row + [0,True]
-            try:
-                cursor.execute(write_query,tuple(new_row))
-            except Exception as E:
-                print(f"FAILED SQL QUERY:\n{write_query}")
-                raise(E)
-            add_new_line_score( row[id_index], row[headers.index("projection_type")], row[line_index], cursor )
-
-        elif len(existing_data) > 1:
-            '''---Since there should only be one row with a target id that is also the latest, this check to make sure that is enforced---'''
-            print(f"Two instances of 'islatest' for same id:\nExisting:\n{existing_data}\nIncoming:\n{row}")
-            print("This is unexpected and should not be possible, plz fix")
-            assert len(existing_data) < 2
+            insert_list.append(new_row)
+            insert_line_score.append([row_id, row[headers.index("projection_type")], row[line_index]])
         
         else:
             '''
@@ -242,44 +273,58 @@ def list_to_data_table( headers, data, cursor):
             is not expected to regularly change, then the 'islatest' version of the existing row must be changed to False and the 'version' and islatest'
             columns of the incoming row must be set to be n+1 and True
             '''
-            existing_row = existing_data[0]
+            print(f"Found change! On id:{row_id}")
+            existing_row = data_dict[row_id]
+            line_score_flag = row[line_index] == existing_row[line_index]
+            disallowed_flag = False
             for i, val in enumerate(row):
-                if val != existing_row[i]:
-                    '''
-                    There are some items that I expect may change over time and don't care to chart them this is the logic for determining if I need to
-                    create a new 'version' of a row to input into the db as well as handle the case where the line spread changes wihtout having to create 
-                    whole new version
-                    '''
-                    if i == line_index:
-                        '''
-                        line_score is expected to change and has it's own table for tracking that, this just updates that 'spread_history' table and
-                        raises the flag that the score did change so that way the latest version of the table can reflect that
-                        '''
-                        add_new_line_score( row[id_index], row[headers.index("projection_type")], val, cursor )
-                        update_score = f"UPDATE {table} SET line_score = {val} WHERE my_id = {row[id_index]} AND islatest = TRUE;"
-                        cursor.execute(update_score)
+                
+                if headers[i] in my_dts and isinstance(val, str):
+                    my_val = datetime.fromisoformat(val)
+                    '''elif headers[i] in my_bools:
+                        my_val = int(val)'''
+                else:
+                    my_val = val
 
-                    elif headers[i] not in allow_change:
-                        '''
-                        If there is a field that has changed that is not allowed to change without new version, then the old version needs to be changed and the new
-                        version needs to be inserted into the db. Just for the sake of simplicity, as soon as one unallowed change is made, we will update the whole row
-                        immedeatley rather than try and keep track of all the individual cols that changed.
-                        '''
-                        if i < line_index and row[line_index] != existing_row[line_index]:
-                            '''
-                            In the case where a field changes that is not allowed to change before the program gets to the 'line_score' field then any changes in 
-                            that would not be reflected in the table that tracks the expected changes of that value. This code block checks if there are any changes 
-                            to be made and makes them if needed before the whole line is updated
-                            '''
-                            add_new_line_score( row[id_index], row[headers.index("projection_type")], existing_row[line_index], cursor )
-                        
-                        '''---Getting the version number for the new entry to update existing row and add in new row for the latest version---'''
-                        new_version = existing_row[fix_headers.index('my_version')] + 1
-                        new_row = row + [new_version, True]
-                        update_existing = f"UPDATE {table} SET islatest = FALSE WHERE islatest = TRUE AND id = {row[id_index]};"
-                        cursor.execute(update_existing)
-                        cursor.execute(write_query, tuple(new_row))
-                        break
+                if my_val != existing_row[i] and headers[i] not in allow_change:
+                    '''
+                    To keep track of how info changes over time I will keep track of versions over time. In the case I find a field that not 'allowed' to change has changed
+                    then this code adds in the new info and marks the old data as not the latest version.
+                    '''                    
+                    disallowed_flag = True
+                    new_version = existing_row[fix_headers.index('my_version')] + 1
+                    new_row = row + [new_version, True]
+                    update_existing = f"UPDATE {table} SET islatest = FALSE WHERE islatest = TRUE AND id = {row[id_index]};"
+                    cursor.execute(update_existing)
+                    insert_list.append(new_row)
+                    print("Dissallowed changed")
+                    print(f"{my_val}\t{existing_row[i]}\n{type(my_val)}\t{type(existing_row[i])}\n{headers[i]}\t{allow_change}")
+                    #input()
+                    break
+            
+            if line_score_flag:
+                '''
+                This handles the tracking of changing line scores. In the case where just the line score is changed, then this updates the 'my_data' database to reflect that. If
+                other dissallowed items changed, then this is updated when that data is saved to the DB.
+
+                In any case, if the line_score_flag is raised, then new line needs to be added to the 'spread_history' table
+                '''
+                if not disallowed_flag:
+                    print(" scoreline changed")
+                    update_score = f"UPDATE {table} SET line_score = {my_val} WHERE my_id = {row[id_index]} AND islatest = TRUE;"
+                    cursor.execute(update_score)
+                
+                insert_line_score.append([row_id, row[headers.index("projection_type")], row[line_index]])
+                
+    add_new_lines(insert_list, insert_line_score, cursor)
+            
+def add_new_lines(my_data_list, spread_history_list, cursor):
+    my_data_write_query = f"INSERT INTO my_data VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);"
+    spread_history_write_query = f"INSERT INTO spread_history VALUES(%s,%s,%s,NOW());"
+    cursor.executemany(my_data_write_query, my_data_list)
+    cursor.executemany(spread_history_write_query, spread_history_list)
+
+
 
 def add_new_line_score( bet_id, bet_type, spread, cursor):
     '''
