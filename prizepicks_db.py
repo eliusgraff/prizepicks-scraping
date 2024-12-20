@@ -1,6 +1,6 @@
 import mysql.connector
 import helper
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 #Long term, this should not need to be root user
 def root_login():
@@ -114,10 +114,6 @@ def send_to_sql(data_cols, data_values, includes_cols, include_values):
     
     '''---Sending the values for the 'data' table to mySQL---'''
     list_to_data_table(data_cols, data_values, cursor)
-    conn.commit()
-    conn.close()
-    print("Completed adding to data table, check to see if things look good")
-    exit()
 
     '''---Going through all the includes and adding those now---'''
     for name, cols in includes_cols.items():
@@ -176,10 +172,10 @@ def list_to_data_table( headers, data, cursor):
 
     '''---Some fields I expect to be datetimes, so if they are given, parse them as datetime---'''
     my_dts={
-        "board_time",
-        "end_time",
-        "start_time",
-        "updated_at"
+        "board_time": headers.index("board_time"),
+        "end_time": headers.index("end_time"),
+        "start_time": headers.index("start_time"),
+        "updated_at": headers.index("updated_at")
     }
 
     '''---Some fields are boolean, but SQL returns them as 1 or 0, so I need to know which ones I need to cast correctly---'''
@@ -244,12 +240,20 @@ def list_to_data_table( headers, data, cursor):
         '''
         row_id = row[id_index]
         if row_id in updated_ids:
-            '''---Cheecking to make sure same id is not in to be sent into DB  twice---'''
+            '''---Checking to make sure same id is not in to be sent into DB  twice---'''
             print(f"THIS IS UNEXPECTED AND SHOULD NOT BE ABLE TO HAPPEN. THIS IS SECOND TIME THIS ID IS UPDATED IN THE SAME API REQUEST:\n{row}")
             print("For now this will just be for refernce but if there is a case where this can happen, then this will need to be handled logically")
             input("Skipping this one, press enter to continue")
             continue
         updated_ids.add(row_id)
+
+        for i in my_dts.values():
+            if isinstance(row[i], str):
+                my_dt = datetime.fromisoformat(row[i])
+                utc_dt = my_dt.astimezone(timezone.utc)
+                my_val = utc_dt.replace(tzinfo=None)
+                row[i] = my_val
+        
         '''
         Go through each row of data passed into the function and check to see if there already existing entry in the db for it. 
             If there is no existing entry, then add it right in. 
@@ -263,6 +267,7 @@ def list_to_data_table( headers, data, cursor):
             If there is nothing already in the DB matching the data id, insert the values straight into the DB. Since this is the first time this
             data is inserted, adding [0,True] to the end of the row to align with the 'version' and 'islatest' columns
             '''
+            print("Adding new")
             new_row = row + [0,True]
             insert_list.append(new_row)
             insert_line_score.append([row_id, row[headers.index("projection_type")], row[line_index]])
@@ -273,16 +278,21 @@ def list_to_data_table( headers, data, cursor):
             is not expected to regularly change, then the 'islatest' version of the existing row must be changed to False and the 'version' and islatest'
             columns of the incoming row must be set to be n+1 and True
             '''
-            print(f"Found change! On id:{row_id}")
+            #print(f"Found dupe! On id:{row_id}")
             existing_row = data_dict[row_id]
-            line_score_flag = row[line_index] == existing_row[line_index]
+            line_score_flag = row[line_index] != existing_row[line_index]
             disallowed_flag = False
+            '''---Go through each item in the incomming row and compare it to the existing data, checking if anything has changed---'''
             for i, val in enumerate(row):
                 
-                if headers[i] in my_dts and isinstance(val, str):
-                    my_val = datetime.fromisoformat(val)
-                    '''elif headers[i] in my_bools:
-                        my_val = int(val)'''
+                '''---Make sure datetimes are handled correctly--'''
+                if (headers[i] in my_dts) and (isinstance(val, datetime)) and (isinstance(existing_row[i], datetime)) and ((val - existing_row[i]) != timedelta(0)):
+                    print("Times not aligned:")
+                    print("Dissallowed changed")
+                    print(f"er:{existing_row}")
+                    print(f"nr:{row}")
+                    print(f"Change = {i}")
+                    input("StOPPING ON THIS")
                 else:
                     my_val = val
 
@@ -298,8 +308,10 @@ def list_to_data_table( headers, data, cursor):
                     cursor.execute(update_existing)
                     insert_list.append(new_row)
                     print("Dissallowed changed")
-                    print(f"{my_val}\t{existing_row[i]}\n{type(my_val)}\t{type(existing_row[i])}\n{headers[i]}\t{allow_change}")
-                    #input()
+                    print(f"er:{existing_row}")
+                    print(f"nr:{row}")
+                    print(f"Change = {i}")
+                    input("StOPPING ON THIS")
                     break
             
             if line_score_flag:
@@ -311,7 +323,7 @@ def list_to_data_table( headers, data, cursor):
                 '''
                 if not disallowed_flag:
                     print(" scoreline changed")
-                    update_score = f"UPDATE {table} SET line_score = {my_val} WHERE my_id = {row[id_index]} AND islatest = TRUE;"
+                    update_score = f"UPDATE {table} SET line_score = {my_val} WHERE id = {row[id_index]} AND islatest = TRUE;"
                     cursor.execute(update_score)
                 
                 insert_line_score.append([row_id, row[headers.index("projection_type")], row[line_index]])
@@ -321,10 +333,10 @@ def list_to_data_table( headers, data, cursor):
 def add_new_lines(my_data_list, spread_history_list, cursor):
     my_data_write_query = f"INSERT INTO my_data VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);"
     spread_history_write_query = f"INSERT INTO spread_history VALUES(%s,%s,%s,NOW());"
+    print("Spreads:")
+    print(spread_history_list)
     cursor.executemany(my_data_write_query, my_data_list)
     cursor.executemany(spread_history_write_query, spread_history_list)
-
-
 
 def add_new_line_score( bet_id, bet_type, spread, cursor):
     '''
@@ -344,3 +356,4 @@ def list_to_string(my_list):
     to_return = to_return[:-2]
     print(f"Converted string into: {to_return}")
     return to_return
+
