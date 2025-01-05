@@ -58,9 +58,11 @@ def parse_webpage(webpage):
 
     print("Parsing 'data' tags...")
     for item in json_data['data']:
+
         '''---For each of the tags in the 'data' tag, send them all to the 'data' parser to get the necessary data from the json---'''
         my_data = parse_data(item, data_order)
         data_values.append(my_data)
+
     print(f"Parsed 'data' with {len(data_values)} entries")
 
     '''---After the 'data' section of the json, it goes to the 'included' tag which can contain many different tags---'''
@@ -94,19 +96,27 @@ def parse_webpage(webpage):
     print("Parsing 'included' tags...")
 
     for item in json_data['included']:
+
         '''---Going through all of the 'included' tags and parsing them one by one---'''
         my_type = item['type']
         '''
         'new_player' and 'league' tags have relationship dicts which make them different from 
         the other tags in the 'included' tag, so they need their own parsers
         '''
+        print(f"Item:\n{item}")
+        print(f"----------Parsing data from {my_type} section----------")
         if my_type in included_tag_orders:
+
             parsed_include = parse_included(item, included_tag_orders[my_type])
+
         else:
             '''---Since all of the tags should be parsed, this checks to make sure all tag types are correctly parsed and saved---'''
             print(f"Concerned about this one, please review:")
+
             for k,v in item.items():
+
                 print(f"{k}\t{v}")
+
             print("Review needed. Exiting....")
             exit()
 
@@ -117,39 +127,47 @@ def parse_webpage(webpage):
         there, this must be handled uniquely to get the list of data also saved in the database. This code handles those cases.
         '''
         if my_type == "league" and parsed_include[-1] is not None:
+
             league_data = parsed_include[-1]
             data_list = league_data[0]
             timestamp = league_data[1]
             league_id = parsed_include[0]
             for val in data_list:
+
                 included_tag_values['league_data'].append([league_id, timestamp, val])
+
             parsed_include[-1] = True
         
         elif my_type == "stat_type":
+
             if isinstance(parsed_include[1], list) and len(parsed_include) > 0:
+
                 ignored_leagues = parsed_include[1]
                 for league_num in ignored_leagues:
+
                     '''
                     To find this data in the SQL db, the 'lfg_ignored_leagues' table rows will keep track of the stat_type id and
                     the league number this way it can be recalled based on the stat_type id or vice versa
                     '''
                     lfg_row = [parsed_include[0], league_num]
                     included_tag_values['lfg_ignored_leagues'].append(lfg_row)
+
                 parsed_include[1] = True
 
             else: parsed_include[1] = None
 
-
         included_tag_values[my_type].append(parsed_include)
         my_tot = 0
     
+
     for k,v in included_tag_values.items():
-        for row in v:
-            assert len(row) == len(included_tag_orders[k])
+        '''---checking that all of the rows are the correct length before sending them to sql---'''
+        for row in v: assert len(row) == len(included_tag_orders[k])
+
+        '''---Counting total number of entries parsed---'''
         my_tot+=len(v)
+
     print(f"Parsed 'include' with {my_tot} entries")
-    
-    
     return ppdb.send_to_sql(data_order, data_values, included_tag_orders, included_tag_values)
 
 def parse_included(my_tag, order):
@@ -168,14 +186,21 @@ def parse_included(my_tag, order):
 
     '''---For 'new_player' and 'league' tags, some special parsing is need to get some unique data, so we need to account for that---'''
     if my_tag['type'] == 'new_player':
+
         my_dict['team_id'] = my_tag['relationships']['team_data']['data']['id']
         not_found.remove('team_id')
+
     elif my_tag['type'] == 'league':
+
         temp_data = my_tag['relationships']['projection_filters']['data']
         if len(temp_data) > 0:
+
             my_dict['is_data'] = None
+
         else:
+
             my_dict['is_data'] = (temp_data, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
         not_found.remove('is_data')
 
     '''---All tags have 'id' field which is needed, so hard-code this in---'''
@@ -185,23 +210,30 @@ def parse_included(my_tag, order):
     '''---Look for the remaining tags we need in the attributes tag and add those to the dict---'''
     remaining = not_found.copy()
     for attr in remaining:
+
         try:
+
             my_dict[attr] = my_tag['attributes'][attr]
+
         except Exception as e:
+
             print(my_tag)
-            print(e)
-            print("---Exited Early---")
-            exit()
+            print(f"Something went wrong atting attribute values to my_dict. Got exception:\n{e}")
+            raise e
+
         not_found.remove(attr)
 
     '''---Print statements to help with validation---'''
+    #should be able to remove this in the future, not useful for production
     if len(not_found) > 0:
+
         print(f"\n\n------------From below tag------------\n")
         for key, val in my_tag.items():print(f"{key}\t{val}")
         print("\n-----------Could not find data for the following-----------\n")
         for k in not_found: print(f"{k},")
         print()
         input("Review if this is ok...")
+
     to_return = [ my_dict[item] for item in order ]
 
     return to_return

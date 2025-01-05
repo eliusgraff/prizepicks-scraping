@@ -1,6 +1,23 @@
 import mysql.connector
 import helper
 from datetime import datetime, timedelta, timezone
+from mysql.connector import IntegrityError
+
+class one_to_many:
+    '''
+    Helper class to help with holding data for many to many relationships. To compare and decide what needs to be updated
+    '''
+    base_id = int
+    target_ids = set()
+    version = int
+    islatest = bool
+
+    def __init__(self, b_id, ver, latest, t_id_set):
+        self.base_id = b_id
+        self.target_ids = t_id_set
+        self.version = ver
+        self.islatest = latest
+        
 
 #Long term, this should not need to be root user
 def root_login():
@@ -18,10 +35,20 @@ def root_login():
     my_dict = helper.get_secret("mysql")
     '''---Checking to make sure all the necessary parts were read from file---'''
     not_found_list = []
-    if my_dict.get('un') is None: not_found_list.append('un')
-    if my_dict.get('pw') is None: not_found_list.append('pw')
-    if my_dict.get('hn') is None: not_found_list.append('hn')
+    if my_dict.get('un') is None: 
+        
+        not_found_list.append('un')
+
+    if my_dict.get('pw') is None: 
+        
+        not_found_list.append('pw')
+
+    if my_dict.get('hn') is None: 
+        
+        not_found_list.append('hn')
+
     if len(not_found_list) > 0:
+
         print(f"WARNING: Missing values in dict:{not_found_list}")
         return None
 
@@ -48,8 +75,65 @@ def create_db_connection(db_name="prizepicks", host_name= None, user_name = None
     print("MySQL Database connection successful")
     return connection
 
-def list_to_db( table, headers, data, cursor):
-    raise NotImplemented
+def write_to_mysql(data, table_name, cursor):
+    
+    if len(data) == 0:
+
+        return
+    
+    insert_query = f"INSERT INTO {table_name} VALUES ({', '.join(['%s']*len(data[0]) )});"
+    cursor.executemany(insert_query, data)
+
+def remove_duplicate_row(table_name, id_val, cursor):
+
+    my_query = f"SELECT * FROM {table_name} WHERE ISLATEST = TRUE AND ID = {id_val};"
+    rows = read_query(cursor, my_query)
+    if len(rows) == 0:
+
+        print(f"Could not find anything for sql query: {my_query}\nThis is unexpected, returning bad status.")
+        return False
+    
+    elif len(rows) == 1:
+
+        print(f"This looks good to me, no problems to fix here. Only got 1 row with: {my_query}")
+        return True
+    
+    to_comp = list(rows[0])
+    for each in rows[1:]:
+
+        for i, v in enumerate(each):
+
+            if to_comp[i] != v:
+                
+                if to_comp[i] == None and v != False:
+
+                    if str(to_comp[i]) != str(v):
+
+                        print(f"Rows not same, not sure how to fix this.")
+                        for each in rows: print(each)
+                        return False
+                
+    for i,v in enumerate(to_comp):
+        if v == None:
+            to_comp[i] = False
+
+    del_query = f"DELETE FROM {table_name} WHERE ISLATEST = TRUE AND ID = {id_val};"
+    insert_query = f"INSERT INTO {table_name} VALUES{tuple(to_comp)};"
+
+    try:
+
+        cursor.execute(del_query)
+        cursor.execute(insert_query)
+
+    except mysql.connector.errors.ProgrammingError as E:
+
+        print(del_query)
+        print(insert_query)
+        raise E
+    
+    return True
+
+def list_to_db(table, headers, data, cursor):
     '''
     Function which will send passed in descriptors and data to the local prizepicks mySQL database
     Argumetns are:
@@ -70,57 +154,190 @@ def list_to_db( table, headers, data, cursor):
                 ['718', 82]
                 ]
     '''
-    id_index = headers.index("id")
+
+    print(f"hdrs: {headers}")
+    for each in range(min(10, len(data))):
+        
+        '''---For dev/debug purposes only, just pringint first 10 rows of data to be added---'''
+        print(data[each])
+
+    print("-------------")
+
+    '''
+    Since there is a many-to-many relationship in the 'league' values, this needs a second table to represent this. This code helps
+    accomodate this by checking if the table name is in the dict which has list of all the tables which need nonstandard id naming
+    '''
+    interm_tables = {
+        "lfg_ignored_leagues"
+    }
+
+    '''
+    There are cases where the names used by PrizePicks are either inconsistent or not the same as the names used in the mySQL database. This chunk of code accounts
+    for those discrepancies and makes sure that the names are aligned so that the data can be added to the database correctly
+    '''
+    id_names = {
+        "league_data": "league_id",
+    }
+    id_title = "id"
+    if table in id_names:
+        print(f"Adjusting id_title")
+        id_title = id_names[table]
+
+    id_index = headers.index(id_title)
     cols_query = f"SHOW COLUMNS FROM {table};"
     cursor.execute(cols_query)
     cols_list = cursor.fetchall()
+    cols_list = [col[0] for col in cols_list]
+    main_list = []
 
-    #make sure I cols list looks how I expect
-    for each in cols_list:
-        print(each)
-    exit()
+    '''---make sure the cols list looks same as what is expected---'''
+    #in future may be able to make sure that as long as all the col names are represented in the list passed to the function, then it can be handled
+    for i, header in enumerate(headers):
 
-    assert len(headers) < len(cols_list)
-    for i, name in enumerate(headers):
-        if name != cols_list[i][0]:
-            print(f"Headers:\t{headers}")
+        if header != cols_list[i]:
+
+            print(cols_list[i])
+            print(header)
             print(f"Cols:\t{cols_list}")
-            break
-        input()
+            print(f"Headers:\t{headers}")
+            raise ValueError("Headers do not match")
 
+    #I think this can be optimized here with all the casting vs what is actually being used
+    id_set = set([row[id_index] for row in data])
+    id_list = tuple(id_set)
+    my_len = len(id_list)
+    if my_len == 0:
+
+        print(f"No data to add for {table}. Returning...")
+        return
+    
+    elif len(id_list) == 1:
+
+        '''---There are issues with sending tuples of length 1 as a list into mySQL, this fixes that issue with a bandaid---'''
+        id_list = f"({id_list[0]})"
+
+    '''---Loading all latest data from mysql to compare with new data---'''
+    my_query = f"SELECT * FROM {table} WHERE ISLATEST = TRUE AND ID IN {id_list};"    
+    existing_data = read_query(cursor, my_query)
+    
+    ######Here is where the logic for how to handle lfg_ignored_leagues should go.
+    # I should check for this case and then handle it differenrtly than the other tables
+    if table in interm_tables:
+
+        '''
+        Our data may contain many-to-many relationships. Represent this, an interm table is used. lfg_ignored_leagues for example is an interm table used to connect the lfg_ignored_leagues to stat type.
+        Since a stat types may ignore multiple leagues and one league may be ignored by multiple stat types, this interm table is needed. Both stat_type and league have thie own tables with thier own 
+        data in them. This way user can query the dba nd see which leagues are ignored by which stat types and vice versa, although I don't know what the practical use is of that.
+        
+        When this happens different logic must be used to account for this since it is valid for multiple rows with the same id all to have 'islatest' = True.
+        '''
+        print(f"In interim table: {table}")
+        if table == "lfg_ignored_leagues":
+
+            main_list = interm_to_db(table, data, existing_data, id_index, headers.index('league_num'), cursor)
+
+        else:
+
+            print(f"No parser for this table name: {table}")
+            raise NotImplementedError
+        
+        write_to_mysql(main_list, table, cursor)
+        return
+    
+    '''---Adding all the existing latest data to a dictionary for quick recall---'''
+    existing_data_dict = dict()
+    for row in existing_data:
+        
+        row_id = row[id_index]
+        '''
+        Goes though and checks to make sure there is not multiple rows iwth the same id. This needs to be guarunteed here since I'm 
+        not using primary keys for most of these tables
+        '''
+        if row_id in existing_data_dict:
+
+            print(f"Two instances of id = {row_id} in table {table}")
+            print("This is unexpected and should not be possible. Removing one of the duplicates for this, but this is nothing more than a band-aid and RC must be fixed!")
+            if remove_duplicate_row(table, row_id, cursor):
+
+                continue
+
+            else:
+
+                print("Could not simply remove duplicate row because both rows were not identical.")
+                raise ValueError
+
+        existing_data_dict[row_id] = row
+
+    '''---Going through each row of data and checking if it needs to be added or updated---'''
     for row in data:
-        my_query = f"SELECT * FROM {table} WHERE ISLATEST = TRUE AND ID = {row[id_index]};"
-        latest_data = read_query(cursor, my_query)
-        write_query = None
 
-        if len(latest_data) == 0:
-            write_query = f"INSERT INTO {table} VALUES {tuple(row+[0,True])}"
-            cursor.execute(write_query)
-        
-        for i, val in enumerate(row):
-            if val != latest_data[i]:
-                #if it is ok to be different
-                #   continue
-                #else
-                #   update existing row islatest flag to false
-                #   add in new row with version = n+1
-                is_same = False
-                #   break
-        
+        row_id = row[id_index]
+        if row_id not in existing_data_dict:
+
+            '''---If there is no existing data for this id, then add it in---'''
+            print(f"Adding new row: {row}")
+            main_list.append(row+[0,True])
+
+        else:
+            '''---If there is already data for this id, then check to see if anything has changed---'''
+            for i, val in enumerate(row):
+
+                if val != existing_data_dict[row_id][i]:
+
+                    print(f"Change in {headers[i]}: {existing_data_dict[row_id][i]} -> {val}")
+                    update_existing = f"UPDATE {table} SET islatest = FALSE WHERE islatest = TRUE AND id = {row[id_index]};"
+                    cursor.execute(update_existing)
+                    main_list.append(row+[existing_data_dict[-2]+1,True])
+
+    '''---Adding all the new data to the database---'''
+    for each in main_list:
+        print(each)
+    input()
+
+    try:
+
+        write_to_mysql(main_list, table, cursor)
+
+    except mysql.connector.errors.IntegrityError as E:
+
+        print(f"Headers {headers}\nid_title{id_title}\nid_index{id_index}\n")
+        print(main_list)
+
+        raise E
+
 def send_to_sql(data_cols, data_values, includes_cols, include_values):
+    '''
+    This function takes in 2 lists to cover the 'data' table
+    1) data_cols is the list for order and names of the columns in the data table
+
+    2) data_values is a list of lists where each sub-list contains the parlall data for each of the columns
+
+    Then all the various include values are sent in 2 dictionaries
+    1) includes_cols dict of lists where the keys are the includes type names and the values are lists of the column names for that type
+
+    2) include_values is another dict where the keys are the include types but each value has a list of lists where each sub-list is the paralell data for that include type
+    
+    This function is responsible for calling all the correct functions to get all the data into the mySQL databale
+    '''
+
     '''---Creating mysql connecrtion and cursor objects so we can set up the transfer---'''
     conn = create_db_connection()
     cursor = conn.cursor()
-    
+
+    print("Parsing my_data into mySQL")
     '''---Sending the values for the 'data' table to mySQL---'''
     list_to_data_table(data_cols, data_values, cursor)
+    print("Parsing to mySQL complete")
 
+    print("Parsing includes into mySQL")
     '''---Going through all the includes and adding those now---'''
     for name, cols in includes_cols.items():
-        list_to_db(name, cols, include_values[name])
+        #####This is where we need to start looking at how we want to handle the lfg_ignored_leagues#####
+        print(f"name {name}\ncols{cols}")
+        list_to_db(name, cols, include_values[name], cursor)
 
     '''---Saving changes to the databse and closing the connection---'''
-    #I should look into what it best practive and when to commit the sql executions I think I like doing it at the end so that if something goes wrong then just nothing is added and it's no problem
+    #I should look into what it best practice and when to commit the sql executions I think I like doing it at the end so that if something goes wrong then just nothing is added and it's no problem
     conn.commit()
     conn.close()
     return True
@@ -128,10 +345,13 @@ def send_to_sql(data_cols, data_values, includes_cols, include_values):
 def read_query(cursor, query):
     
     try:
+
         cursor.execute(query)
         result = cursor.fetchall()
         return result
+    
     except Exception as E:
+
         print(f"Attempting query: {query}\nBut error occured")
         raise E
 
@@ -215,13 +435,24 @@ def list_to_data_table( headers, data, cursor):
         raise AE
 
     '''---Pull in all existing rows from the db into a dict for quick recall---'''
-    id_list = [values[id_index] for values in data]
-    my_query = f"SELECT * FROM {table} WHERE ISLATEST = TRUE AND ID IN {tuple(id_list)};"    
+    id_list = tuple(values[id_index] for values in data)
+    my_len = len(id_list)
+    if my_len == 0:
+
+        print(f"No data to add for {table}. Returning...")
+        return
+    
+    elif len(id_list) == 1:
+
+        id_list = f"({id_list[0]})"
+
+    my_query = f"SELECT * FROM {table} WHERE ISLATEST = TRUE AND ID IN {id_list};"
     existing_data = read_query(cursor, my_query)
     data_dict = dict()
 
     '''---Making sure that the data in the db already does not have double-up of same ids that are 'latest'---'''
     for row in existing_data:
+
         if row[id_index] in existing_data:
             '''
             Since there should only be one row with a target id that is also the latest, this check to make sure that is enforced. Since this should not be possible
@@ -240,15 +471,19 @@ def list_to_data_table( headers, data, cursor):
         '''
         row_id = row[id_index]
         if row_id in updated_ids:
+
             '''---Checking to make sure same id is not in to be sent into DB  twice---'''
             print(f"THIS IS UNEXPECTED AND SHOULD NOT BE ABLE TO HAPPEN. THIS IS SECOND TIME THIS ID IS UPDATED IN THE SAME API REQUEST:\n{row}")
             print("For now this will just be for refernce but if there is a case where this can happen, then this will need to be handled logically")
             input("Skipping this one, press enter to continue")
             continue
+
         updated_ids.add(row_id)
 
         for i in my_dts.values():
+
             if isinstance(row[i], str):
+
                 my_dt = datetime.fromisoformat(row[i])
                 utc_dt = my_dt.astimezone(timezone.utc)
                 my_val = utc_dt.replace(tzinfo=None)
@@ -263,6 +498,7 @@ def list_to_data_table( headers, data, cursor):
         '''---Checking to see what already exists in the db---'''
         
         if data_dict.get(row_id) is None:
+
             '''
             If there is nothing already in the DB matching the data id, insert the values straight into the DB. Since this is the first time this
             data is inserted, adding [0,True] to the end of the row to align with the 'version' and 'islatest' columns
@@ -273,27 +509,31 @@ def list_to_data_table( headers, data, cursor):
             insert_line_score.append([row_id, row[headers.index("projection_type")], row[line_index]])
         
         else:
+
             '''
             If there is already data for this id in the DB, then go through each column and check to see if anything changed. If something changed that
             is not expected to regularly change, then the 'islatest' version of the existing row must be changed to False and the 'version' and islatest'
             columns of the incoming row must be set to be n+1 and True
             '''
-            #print(f"Found dupe! On id:{row_id}")
             existing_row = data_dict[row_id]
             line_score_flag = row[line_index] != existing_row[line_index]
             disallowed_flag = False
+
             '''---Go through each item in the incomming row and compare it to the existing data, checking if anything has changed---'''
             for i, val in enumerate(row):
                 
                 '''---Make sure datetimes are handled correctly--'''
                 if (headers[i] in my_dts) and (isinstance(val, datetime)) and (isinstance(existing_row[i], datetime)) and ((val - existing_row[i]) != timedelta(0)):
+                    
                     print("Times not aligned:")
                     print("Dissallowed changed")
                     print(f"er:{existing_row}")
                     print(f"nr:{row}")
                     print(f"Change = {i}")
                     input("StOPPING ON THIS")
+                
                 else:
+
                     my_val = val
 
                 if my_val != existing_row[i] and headers[i] not in allow_change:
@@ -357,3 +597,98 @@ def list_to_string(my_list):
     print(f"Converted string into: {to_return}")
     return to_return
 
+def create_relationships_dict(data, i_base, i_target):
+    '''
+    Helper function to take a list of lists and turn them into a dictionary where the keys are the base ids and the values are one_to_many objects
+    which represent all the relationships the base object has with the target objects
+    '''
+    to_return = dict()
+    for base_row in data:
+
+        b_id = str(base_row[i_base])
+        t_id = base_row[i_target]
+        if b_id in to_return:
+
+            to_return[b_id].target_ids.add(t_id)
+
+        else:
+
+            to_return[b_id] = one_to_many(b_id, base_row[-2], base_row[-1], set({t_id}) )
+
+    return to_return
+
+def interm_to_db(table, new_data, existing_data, base_id_index, target_id_index, cursor):
+    '''
+    lfg_ignored_leagues is a table which is used to account for a many-to-many relationship. One stat_type may have many lfg_ignored_leagues. Although I don't know what
+    they do or why they are needed, I decide the data must be saved so it should be accounted for. There is nothing unique about this fucntion for the lfg_ignored_leagues so
+    it may be used in future for other cases where a many-to-one relationship is needed.
+
+    I will use the term 'base' to refer to the object which is in the 'id' part of the table and is the object which may is having a relationship with another object
+    I will use the term 'target' to refer to the object which is being refered to as one of the many relationships the 'base' object may be having.
+
+    variables are:
+        table - a str object with the name of the table the data will be inserted into
+
+        headers - a list of strings which are the names of the columns in the target table in the order they appear in the mySQL database
+
+        new_data - a list of lists where each sub-list is the data for a row to be added to the target table
+
+        existing_data - a list of all the rows tagged 'latest' in the target table    
+    
+        id_set - a set with all the ids of the new base objects that is to be added to the target table
+
+        id_index - an int which is the index of the 'id' column in the headers list. This is the id of the base object
+
+        val_index - an int which is the index of the column which holds the values for the id of the target object
+
+        cursor - a cursor object which is used to interact with the mySQL database
+    '''
+    '''
+    this will be a dict of sets to make sure the same values is not double-added for the same id
+    keys will be the values in the 'id' column and the values will be sets of the values already added to the list to be added to the db
+    '''
+    existing_relationships = create_relationships_dict(existing_data, base_id_index, target_id_index)
+    new_relationships = create_relationships_dict(new_data, base_id_index, target_id_index)
+
+    print("\nExisting:")
+    for k1,v1 in existing_relationships.items():
+        print(f"{k1}\t{v1.target_ids}")
+    
+    print("\nNew:")
+    for k2,v2 in new_relationships.items():
+        print(f"{k2}\t{v2.target_ids}")
+    
+    '''---List to hold all the new data to be added to the db---'''
+    new_data_list = []
+
+    for base_id in new_relationships:
+
+        new_targets = new_relationships[base_id].target_ids
+        existing_targets = existing_relationships[base_id].target_ids
+
+        if base_id in existing_relationships:
+        
+            if new_targets != existing_targets:
+            
+                '''---If values for the base_id have changed, then need to add in all the new targets---'''
+                print(f"Change in relationships for {base_id} from\n{existing_targets} \nto \n{new_targets}")
+                '''---sql query to update all the old data to not being latest---'''
+                update_existing = f"UPDATE {table} SET islatest = FALSE WHERE islatest = TRUE AND id = {base_id};"
+                cursor.execute(update_existing)
+                for t_id in new_targets:
+
+                    '''---Adding in all the new data for this base_id---'''
+                    new_data_list.append([base_id, t_id, existing_relationships[base_id].version+1, True])
+            
+        else:
+
+            for t_id in new_targets:
+
+                '''---Adding in all the new data for this base_id---'''
+                new_data_list.append([base_id, t_id, 0, True])
+    
+    if len(new_data_list) > 0:
+        for each in new_data_list: 
+            print(each)
+        input("stopping here")
+    return new_data_list       

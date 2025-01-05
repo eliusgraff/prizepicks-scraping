@@ -81,7 +81,7 @@ def validate():
     except Exception as E:
         print("Did not pass parsing of wp1")
         raise E
-
+    input("Complete with wp1")
     print("\n>>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF WP2<<<<<<<<<<<<<<")
     wp2 = get_wp_example("example_wp_inflight.html", local = True, ow = False, league="NFL")
     print("\n>>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF API1<<<<<<<<<<<<<<")
