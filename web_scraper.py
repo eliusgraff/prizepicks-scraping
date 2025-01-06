@@ -2,7 +2,8 @@ from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, SessionNotCreatedException
+from webdriver_manager.chrome import ChromeDriverManager
 import helper
 import time
 #import httpx #- Not used in current implementation, could be added back in  future
@@ -19,6 +20,7 @@ def make_selenium_request (league, chromedriver_path = None, tmo_value = 5):
     '''
     league = validate_league(league)
     if league is None:
+
         return 1
 
     '''using as defaults for api call'''
@@ -32,14 +34,28 @@ def make_selenium_request (league, chromedriver_path = None, tmo_value = 5):
     #ops.add_argument("--headless=new")
     cd_info = chromedriver_path if chromedriver_path is not None else helper.get_secret("chromedriver")
     if cd_info.get('path') is None:
+
         print("CRITICAL:Not chromedriver path found, exiting!")
         return 2
-    session = webdriver.Chrome(cd_info['path'], options=ops)
+    
+    try:
+
+        session = webdriver.Chrome(options=ops)
+
+    except SessionNotCreatedException:
+
+        print("Got exception for SessionNotCreatedException. Attmepting reinstall and retry connection")
+        session = webdriver.Chrome(ChromeDriverManager().install(), options=ops)
+
     session.get(api_call)
     try:
+
         tmo = WebDriverWait(session, tmo_value).until(EC.presence_of_element_located((By.XPATH, '/html/body/pre')))
+
     except TimeoutException:
+
         return 3
+    
     source = session.page_source
     session.quit()
     return source

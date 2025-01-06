@@ -18,6 +18,44 @@ class one_to_many:
         self.version = ver
         self.islatest = latest
         
+def is_equal(newval, oldval):
+    '''
+    Since types get sticks when parsing with numbers being its or stings as well as bools being represented as 1,0, True, False, and None. Some additional logic is needed to account for
+    this to avoid incorrectly detecting inequalities
+    '''
+    bool_equalities = {
+        "None":False,
+        "True":True,
+        "False":False,
+        "0":False,
+        "1":True
+    }
+    '''---This can be adjusted to deside how close numbers have to be to be considered the same---'''
+    NUMBER_THRESHOLD = 0.999
+
+    b_new = bool_equalities.get(str(newval))
+    b_old = bool_equalities.get(str(oldval))
+    if b_new is not None and b_old is not None:
+
+        #validation - delete this check
+        if b_new != b_old:
+            print(f"Bools not equal new:{b_new} olod:{b_old}")
+
+        return b_new == b_old
+    
+    if isinstance(newval,float) and isinstance(oldval, float):
+
+        #Just for validation, can remove this check here
+        if min(oldval,newval)/max(oldval,newval) < NUMBER_THRESHOLD:
+
+            print(f"Values not the same new:{newval} old{oldval}")
+            print(f"newtype:{type(newval)} oldtype:{type(oldval)}")
+            return False
+        
+        return min(oldval,newval)/max(oldval,newval) > NUMBER_THRESHOLD
+
+    return newval == oldval
+
 
 #Long term, this should not need to be root user
 def root_login():
@@ -88,6 +126,7 @@ def remove_duplicate_row(table_name, id_val, cursor):
 
     my_query = f"SELECT * FROM {table_name} WHERE ISLATEST = TRUE AND ID = {id_val};"
     rows = read_query(cursor, my_query)
+    print(f"First read\n{rows}")
     if len(rows) == 0:
 
         print(f"Could not find anything for sql query: {my_query}\nThis is unexpected, returning bad status.")
@@ -131,6 +170,10 @@ def remove_duplicate_row(table_name, id_val, cursor):
         print(insert_query)
         raise E
     
+    my_query = f"SELECT * FROM {table_name} WHERE ISLATEST = TRUE AND ID = {id_val};"
+    rows = read_query(cursor, my_query)
+    print(f"After read\n{rows}\n")
+
     return True
 
 def list_to_db(table, headers, data, cursor):
@@ -154,14 +197,6 @@ def list_to_db(table, headers, data, cursor):
                 ['718', 82]
                 ]
     '''
-
-    print(f"hdrs: {headers}")
-    for each in range(min(10, len(data))):
-        
-        '''---For dev/debug purposes only, just pringint first 10 rows of data to be added---'''
-        print(data[each])
-
-    print("-------------")
 
     '''
     Since there is a many-to-many relationship in the 'league' values, this needs a second table to represent this. This code helps
@@ -192,6 +227,7 @@ def list_to_db(table, headers, data, cursor):
 
     '''---make sure the cols list looks same as what is expected---'''
     #in future may be able to make sure that as long as all the col names are represented in the list passed to the function, then it can be handled
+    #This should probably be it's own function
     for i, header in enumerate(headers):
 
         if header != cols_list[i]:
@@ -220,8 +256,6 @@ def list_to_db(table, headers, data, cursor):
     my_query = f"SELECT * FROM {table} WHERE ISLATEST = TRUE AND ID IN {id_list};"    
     existing_data = read_query(cursor, my_query)
     
-    ######Here is where the logic for how to handle lfg_ignored_leagues should go.
-    # I should check for this case and then handle it differenrtly than the other tables
     if table in interm_tables:
 
         '''
@@ -231,7 +265,6 @@ def list_to_db(table, headers, data, cursor):
         
         When this happens different logic must be used to account for this since it is valid for multiple rows with the same id all to have 'islatest' = True.
         '''
-        print(f"In interim table: {table}")
         if table == "lfg_ignored_leagues":
 
             main_list = interm_to_db(table, data, existing_data, id_index, headers.index('league_num'), cursor)
@@ -270,30 +303,28 @@ def list_to_db(table, headers, data, cursor):
 
     '''---Going through each row of data and checking if it needs to be added or updated---'''
     for row in data:
-
+    
         row_id = row[id_index]
+
         if row_id not in existing_data_dict:
 
             '''---If there is no existing data for this id, then add it in---'''
-            print(f"Adding new row: {row}")
             main_list.append(row+[0,True])
 
         else:
             '''---If there is already data for this id, then check to see if anything has changed---'''
             for i, val in enumerate(row):
 
-                if val != existing_data_dict[row_id][i]:
-
-                    print(f"Change in {headers[i]}: {existing_data_dict[row_id][i]} -> {val}")
+                if not is_equal(val,existing_data_dict[row_id][i]):
+                    
+                    '''print(f"New row:\t{row}")
+                    print(f"Existing:\t{existing_data_dict[row_id]}")
+                    print(f"Change in {headers[i]}:{existing_data_dict[row_id][i]}->{val}")'''
                     update_existing = f"UPDATE {table} SET islatest = FALSE WHERE islatest = TRUE AND id = {row[id_index]};"
                     cursor.execute(update_existing)
-                    main_list.append(row+[existing_data_dict[-2]+1,True])
+                    main_list.append(row+[existing_data_dict[row_id][-2]+1,True])
 
     '''---Adding all the new data to the database---'''
-    for each in main_list:
-        print(each)
-    input()
-
     try:
 
         write_to_mysql(main_list, table, cursor)
@@ -332,8 +363,7 @@ def send_to_sql(data_cols, data_values, includes_cols, include_values):
     print("Parsing includes into mySQL")
     '''---Going through all the includes and adding those now---'''
     for name, cols in includes_cols.items():
-        #####This is where we need to start looking at how we want to handle the lfg_ignored_leagues#####
-        print(f"name {name}\ncols{cols}")
+
         list_to_db(name, cols, include_values[name], cursor)
 
     '''---Saving changes to the databse and closing the connection---'''
@@ -470,16 +500,7 @@ def list_to_data_table( headers, data, cursor):
         Looping through each of the incoming rows of parsed data to check if they need to be inserted into the db or if existing rows need to be updated
         '''
         row_id = row[id_index]
-        if row_id in updated_ids:
-
-            '''---Checking to make sure same id is not in to be sent into DB  twice---'''
-            print(f"THIS IS UNEXPECTED AND SHOULD NOT BE ABLE TO HAPPEN. THIS IS SECOND TIME THIS ID IS UPDATED IN THE SAME API REQUEST:\n{row}")
-            print("For now this will just be for refernce but if there is a case where this can happen, then this will need to be handled logically")
-            input("Skipping this one, press enter to continue")
-            continue
-
         updated_ids.add(row_id)
-
         for i in my_dts.values():
 
             if isinstance(row[i], str):
@@ -503,7 +524,6 @@ def list_to_data_table( headers, data, cursor):
             If there is nothing already in the DB matching the data id, insert the values straight into the DB. Since this is the first time this
             data is inserted, adding [0,True] to the end of the row to align with the 'version' and 'islatest' columns
             '''
-            print("Adding new")
             new_row = row + [0,True]
             insert_list.append(new_row)
             insert_line_score.append([row_id, row[headers.index("projection_type")], row[line_index]])
@@ -523,6 +543,7 @@ def list_to_data_table( headers, data, cursor):
             for i, val in enumerate(row):
                 
                 '''---Make sure datetimes are handled correctly--'''
+                #can add this into is_equal function?
                 if (headers[i] in my_dts) and (isinstance(val, datetime)) and (isinstance(existing_row[i], datetime)) and ((val - existing_row[i]) != timedelta(0)):
                     
                     print("Times not aligned:")
@@ -536,7 +557,7 @@ def list_to_data_table( headers, data, cursor):
 
                     my_val = val
 
-                if my_val != existing_row[i] and headers[i] not in allow_change:
+                if not is_equal(my_val, existing_row[i]) and headers[i] not in allow_change:
                     '''
                     To keep track of how info changes over time I will keep track of versions over time. In the case I find a field that not 'allowed' to change has changed
                     then this code adds in the new info and marks the old data as not the latest version.
@@ -573,8 +594,6 @@ def list_to_data_table( headers, data, cursor):
 def add_new_lines(my_data_list, spread_history_list, cursor):
     my_data_write_query = f"INSERT INTO my_data VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);"
     spread_history_write_query = f"INSERT INTO spread_history VALUES(%s,%s,%s,NOW());"
-    print("Spreads:")
-    print(spread_history_list)
     cursor.executemany(my_data_write_query, my_data_list)
     cursor.executemany(spread_history_write_query, spread_history_list)
 
@@ -583,7 +602,6 @@ def add_new_line_score( bet_id, bet_type, spread, cursor):
     Function takes in a new data point and adds it into the spread_history table so that as spreads change over time
     the whole history of how those change can be kept and analyzed
     '''
-    col_names = ["bet_id", "bet_type", "spread", "time"]
     vals = [bet_id, bet_type, spread]
     my_query = f"INSERT INTO spread_history VALUES (%s,%s,%s,NOW())"
     cursor.execute(my_query, vals)
@@ -613,7 +631,7 @@ def create_relationships_dict(data, i_base, i_target):
 
         else:
 
-            to_return[b_id] = one_to_many(b_id, base_row[-2], base_row[-1], set({t_id}) )
+            to_return[b_id] = one_to_many(b_id, base_row[-2], base_row[-1], set({t_id}))
 
     return to_return
 
@@ -650,21 +668,31 @@ def interm_to_db(table, new_data, existing_data, base_id_index, target_id_index,
     existing_relationships = create_relationships_dict(existing_data, base_id_index, target_id_index)
     new_relationships = create_relationships_dict(new_data, base_id_index, target_id_index)
 
-    print("\nExisting:")
+    '''print("\nExisting:")
     for k1,v1 in existing_relationships.items():
         print(f"{k1}\t{v1.target_ids}")
     
     print("\nNew:")
     for k2,v2 in new_relationships.items():
-        print(f"{k2}\t{v2.target_ids}")
+        print(f"{k2}\t{v2.target_ids}")'''
     
     '''---List to hold all the new data to be added to the db---'''
     new_data_list = []
 
+
     for base_id in new_relationships:
 
         new_targets = new_relationships[base_id].target_ids
-        existing_targets = existing_relationships[base_id].target_ids
+
+        '''---In case where base_id does not already exist in the db, need to account for it---'''
+        existing_targets = existing_relationships.get(base_id)
+        if existing_targets is not None:
+
+            existing_targets = existing_targets.target_ids
+
+        else:
+
+            existing_targets = {}
 
         if base_id in existing_relationships:
         
@@ -686,9 +714,5 @@ def interm_to_db(table, new_data, existing_data, base_id_index, target_id_index,
 
                 '''---Adding in all the new data for this base_id---'''
                 new_data_list.append([base_id, t_id, 0, True])
-    
-    if len(new_data_list) > 0:
-        for each in new_data_list: 
-            print(each)
-        input("stopping here")
+
     return new_data_list       

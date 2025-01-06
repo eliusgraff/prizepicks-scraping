@@ -17,6 +17,7 @@ def parse_webpage(webpage):
     
     soup = valid_wp(webpage)
     if soup is False:
+
         return False
     
     json_data = json.loads(soup.find('pre').text)
@@ -103,8 +104,6 @@ def parse_webpage(webpage):
         'new_player' and 'league' tags have relationship dicts which make them different from 
         the other tags in the 'included' tag, so they need their own parsers
         '''
-        print(f"Item:\n{item}")
-        print(f"----------Parsing data from {my_type} section----------")
         if my_type in included_tag_orders:
 
             parsed_include = parse_included(item, included_tag_orders[my_type])
@@ -201,10 +200,10 @@ def parse_included(my_tag, order):
 
             my_dict['is_data'] = (temp_data, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-        not_found.remove('is_data')
+        not_found.remove('is_data')        
 
     '''---All tags have 'id' field which is needed, so hard-code this in---'''
-    my_dict['id'] = my_tag['id']
+    my_dict['id'] = int(my_tag['id'])
     not_found.remove('id')
 
     '''---Look for the remaining tags we need in the attributes tag and add those to the dict---'''
@@ -278,7 +277,7 @@ def parse_data(data_item, order):
         "stat_type_id": None
     }
 
-    '''---Some fields are not alwas in a data tag, so this allows the code to know which things it is ok to not have in a tag---'''
+    '''---Some fields are not always in a data tag, so this allows the code to know which things it is ok to not have in a tag---'''
     not_promised = {
         "hr_20"
     }
@@ -288,13 +287,15 @@ def parse_data(data_item, order):
 
     '''---Where the data is not held in a sub-dict, can add that info directly from the json tag to my_dict without iterating over the sub-dict---'''
     my_dict['type'] = data_item['type']
-    my_dict['id'] = data_item['id']
+    my_dict['id'] = int(data_item['id'])
     not_found.remove('type')
     not_found.remove('id')
 
     '''---Parsing attributes sub-dict---'''
     for attr, val in data_item['attributes'].items():
+
         if attr in my_dict:
+
             my_dict[attr] = val
             not_found.remove(attr)
 
@@ -302,9 +303,12 @@ def parse_data(data_item, order):
     relationship_dicts = ["league", "new_player", "duration"]
     relationship_data = ["score"]
     for sub_dict in relationship_dicts:
+
         my_dict[sub_dict] = data_item['relationships'][sub_dict]['data'].get('id')
         not_found.remove(sub_dict)
+
     for sub_dict in relationship_data:
+
         my_dict[sub_dict] = data_item['relationships'][sub_dict].get('data')
         not_found.remove(sub_dict)
 
@@ -312,7 +316,7 @@ def parse_data(data_item, order):
     These are 2 exceptions where the naming is not the same between prizepicks api and my db since thes'stat_type' and 'projection_type' 
     are already used in the 'attuributes' tag, so need to hard-code these exceptions.
     '''
-    #If these are stored in another table, I may not need to save everything twice, I can just get this infor from the other table using the ids - will check on that as work continues
+    #If these are stored in another table, I may not need to save everything twice, I can just get this info from the other table using the ids - will check on that as work continues
     my_dict["projection_type_id"] = data_item['relationships']['projection_type']['data'].get('id')
     my_dict["stat_type_id"] = data_item['relationships']['stat_type']['data'].get('id')
     not_found.remove('projection_type_id')
@@ -339,11 +343,7 @@ def parse_data(data_item, order):
             for k in not_found: print(f"{k},")
             print()
             input("Review if this is ok...")
-    '''
-    print("Final data to send to SQL:")
-    for k,v in my_dict.items(): print(f"{k}\t\t\t{v}")
-    exit()
-    '''
+
     return [my_dict[key] for key in order]
 
 def valid_wp(wp):

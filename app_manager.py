@@ -42,24 +42,35 @@ def get_wp_example(fn = "example_wp.html", local = True, ow = False, league = "N
     file_check = os.path.isfile(fn)
     
     if ow_local:
+
         print(f"OW Local '{fn}'...")
         wp = web_scraper.make_selenium_request(my_lg)
         save_wp_data(wp, fn)
+
     elif use_local:
+
         print(f"Reading from local file '{fn}'")
         if file_check is False:
+
             '''---If local file does not exist then create and fill one with default API request---'''
             print(f"File '{fn} does not exist or is empty")
             wp = web_scraper.make_selenium_request(my_lg)
             if ow_local is True:
+
                 print(f"Re-writing {fn}")
                 save_wp_data(wp, fn)
+
         else:
+
             print(f"Reading from:{fn}")
             with open(fn, 'r') as file:
+
                 wp = file.read()
+
             print("Read complete!")
+
     else:
+
         print("Parsing data from internet request...")
         wp = web_scraper.make_selenium_request(my_lg)
     
@@ -157,10 +168,13 @@ def validate():
     
     return True
 
-
 if __name__ == "__main__":
     '''
     Eventually, this will be the code that is the manager for the scraper that keep running all the time
     '''
-    if validate():
-        print("YAY, WE DID IT!!!")
+    status = web_scraper.make_selenium_request("NFL")
+    if isinstance(status, int):
+        
+        print(f"Something went wrong with errorcode: {status}")
+    
+    my_parser.parse_webpage(status)
