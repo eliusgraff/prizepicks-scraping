@@ -20,7 +20,7 @@ def get_secret(query, fn = "secrets.txt"):
                 '''---If format is not as expected, then skip that line and print warning to console---'''
                 print(f"WARNING: Should have '_' in this line:\n{line}\n")
 
-            if line.find(query,) > -1:
+            if line.find(query) > -1:
                 '''---If query is found, parse the line---'''
                 key_delim = line.find("=")
                 if key_delim == -1:
@@ -29,7 +29,7 @@ def get_secret(query, fn = "secrets.txt"):
                     continue
 
                 key = line[desc_delim+1:key_delim]
-                value = line[key_delim+1:]
+                value = line[key_delim+1:].replace("\n","")
                 my_dict[key] = value
 
     return my_dict
