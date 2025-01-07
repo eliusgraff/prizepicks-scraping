@@ -360,6 +360,7 @@ def valid_wp(wp):
     '''
     try:
         to_validate = BeautifulSoup(wp, "html.parser")
+
     except:
         return False
 
