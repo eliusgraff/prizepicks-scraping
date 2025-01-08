@@ -45,14 +45,7 @@ def is_equal(newval, oldval):
     
     if isinstance(newval,float) and isinstance(oldval, float):
 
-        #Just for validation, can remove this check here
-        if min(oldval,newval)/max(oldval,newval) < NUMBER_THRESHOLD:
-
-            print(f"Values not the same new:{newval} old{oldval}")
-            print(f"newtype:{type(newval)} oldtype:{type(oldval)}")
-            return False
-        
-        return min(oldval,newval)/max(oldval,newval) > NUMBER_THRESHOLD
+        return (min(oldval,newval)/max(oldval,newval)) > NUMBER_THRESHOLD
 
     return newval == oldval
 
@@ -74,19 +67,15 @@ def root_login():
     '''---Checking to make sure all the necessary parts were read from file---'''
     not_found_list = []
     if my_dict.get('un') is None: 
-        
         not_found_list.append('un')
 
     if my_dict.get('pw') is None: 
-        
         not_found_list.append('pw')
 
     if my_dict.get('hn') is None: 
-        
         not_found_list.append('hn')
 
     if len(not_found_list) > 0:
-
         print(f"WARNING: Missing values in dict:{not_found_list}")
         return None
 
@@ -155,10 +144,10 @@ def remove_duplicate_row(table_name, id_val, cursor):
     for i,v in enumerate(to_comp):
         if v == None:
             to_comp[i] = False
-
+    to_comp[-1] = 0
+    
     del_query = f"DELETE FROM {table_name} WHERE ISLATEST = TRUE AND ID = {id_val};"
     insert_query = f"INSERT INTO {table_name} VALUES{tuple(to_comp)};"
-
     try:
 
         cursor.execute(del_query)
@@ -298,7 +287,7 @@ def list_to_db(table, headers, data, cursor):
 
                 print("Could not simply remove duplicate row because both rows were not identical.")
                 raise ValueError
-
+            
         existing_data_dict[row_id] = row
 
     '''---Going through each row of data and checking if it needs to be added or updated---'''
