@@ -1,7 +1,7 @@
 from bs4 import BeautifulSoup
 import json
 from datetime import datetime
-import prizepicks_db as ppdb
+from parsed_data import parsed_data
 
 def parse_webpage(webpage):
     '''
@@ -22,7 +22,7 @@ def parse_webpage(webpage):
     
     json_data = json.loads(soup.find('pre').text)
 
-    '''---Defining order that data will go in as to align with SQL columns---'''
+    '''---Defining order that data is parsed in so that it can be aligned with SQL---'''
     data_order = [
         "type",
         "id",
@@ -65,7 +65,6 @@ def parse_webpage(webpage):
         data_values.append(my_data)
 
     print(f"Parsed 'data' with {len(data_values)} entries")
-
     '''---After the 'data' section of the json, it goes to the 'included' tag which can contain many different tags---'''
 
     '''---Defining order for all the the types of tags within the 'included' tag---'''
@@ -158,16 +157,14 @@ def parse_webpage(webpage):
         included_tag_values[my_type].append(parsed_include)
         my_tot = 0
     
-
     for k,v in included_tag_values.items():
         '''---checking that all of the rows are the correct length before sending them to sql---'''
         for row in v: assert len(row) == len(included_tag_orders[k])
-
         '''---Counting total number of entries parsed---'''
         my_tot+=len(v)
 
     print(f"Parsed 'include' with {my_tot} entries")
-    return ppdb.send_to_sql(data_order, data_values, included_tag_orders, included_tag_values)
+    return parsed_data(data_order, data_values, included_tag_orders, included_tag_values)
 
 def parse_included(my_tag, order):
     '''

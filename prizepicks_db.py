@@ -1,7 +1,7 @@
 import mysql.connector
 import helper
 from datetime import datetime, timedelta, timezone
-from mysql.connector import IntegrityError
+from parsed_data import parsed_data
 
 class one_to_many:
     '''
@@ -45,17 +45,9 @@ def is_equal(newval, oldval):
     
     if isinstance(newval,float) and isinstance(oldval, float):
 
-        #Just for validation, can remove this check here
-        if min(oldval,newval)/max(oldval,newval) < NUMBER_THRESHOLD:
-
-            print(f"Values not the same new:{newval} old{oldval}")
-            print(f"newtype:{type(newval)} oldtype:{type(oldval)}")
-            return False
-        
-        return min(oldval,newval)/max(oldval,newval) > NUMBER_THRESHOLD
+        return (min(oldval,newval)/max(oldval,newval)) > NUMBER_THRESHOLD
 
     return newval == oldval
-
 
 #Long term, this should not need to be root user
 def root_login():
@@ -74,19 +66,15 @@ def root_login():
     '''---Checking to make sure all the necessary parts were read from file---'''
     not_found_list = []
     if my_dict.get('un') is None: 
-        
         not_found_list.append('un')
 
     if my_dict.get('pw') is None: 
-        
         not_found_list.append('pw')
 
     if my_dict.get('hn') is None: 
-        
         not_found_list.append('hn')
 
     if len(not_found_list) > 0:
-
         print(f"WARNING: Missing values in dict:{not_found_list}")
         return None
 
@@ -155,10 +143,10 @@ def remove_duplicate_row(table_name, id_val, cursor):
     for i,v in enumerate(to_comp):
         if v == None:
             to_comp[i] = False
+    to_comp[-1] = 0
 
     del_query = f"DELETE FROM {table_name} WHERE ISLATEST = TRUE AND ID = {id_val};"
     insert_query = f"INSERT INTO {table_name} VALUES{tuple(to_comp)};"
-
     try:
 
         cursor.execute(del_query)
@@ -298,7 +286,7 @@ def list_to_db(table, headers, data, cursor):
 
                 print("Could not simply remove duplicate row because both rows were not identical.")
                 raise ValueError
-
+            
         existing_data_dict[row_id] = row
 
     '''---Going through each row of data and checking if it needs to be added or updated---'''
@@ -336,35 +324,26 @@ def list_to_db(table, headers, data, cursor):
 
         raise E
 
-def send_to_sql(data_cols, data_values, includes_cols, include_values):
+def send_to_sql(parsed_data_obj):
     '''
-    This function takes in 2 lists to cover the 'data' table
-    1) data_cols is the list for order and names of the columns in the data table
-
-    2) data_values is a list of lists where each sub-list contains the parlall data for each of the columns
-
-    Then all the various include values are sent in 2 dictionaries
-    1) includes_cols dict of lists where the keys are the includes type names and the values are lists of the column names for that type
-
-    2) include_values is another dict where the keys are the include types but each value has a list of lists where each sub-list is the paralell data for that include type
-    
-    This function is responsible for calling all the correct functions to get all the data into the mySQL databale
+    Function takes in a parsed_data object and is responsible for sending all that information to mySQL database
     '''
-
+    '''---assert that the argument is correct data structure---'''
+    assert isinstance(parsed_data_obj, parsed_data)
     '''---Creating mysql connecrtion and cursor objects so we can set up the transfer---'''
     conn = create_db_connection()
     cursor = conn.cursor()
 
     print("Parsing my_data into mySQL")
     '''---Sending the values for the 'data' table to mySQL---'''
-    list_to_data_table(data_cols, data_values, cursor)
+    list_to_data_table(parsed_data_obj.data_order, parsed_data_obj.data_values, cursor)
     print("Parsing to mySQL complete")
 
     print("Parsing includes into mySQL")
     '''---Going through all the includes and adding those now---'''
-    for name, cols in includes_cols.items():
+    for name, cols in parsed_data_obj.included_tag_orders.items():
 
-        list_to_db(name, cols, include_values[name], cursor)
+        list_to_db(name, cols, parsed_data_obj.included_tag_values[name], cursor)
 
     '''---Saving changes to the databse and closing the connection---'''
     #I should look into what it best practice and when to commit the sql executions I think I like doing it at the end so that if something goes wrong then just nothing is added and it's no problem

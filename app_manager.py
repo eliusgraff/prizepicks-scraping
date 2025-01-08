@@ -1,6 +1,7 @@
 import os
 import web_scraper
 import my_parser
+from prizepicks_db import send_to_sql
 
 class PassingException(Exception):
     pass
@@ -172,10 +173,11 @@ if __name__ == "__main__":
     '''
     Eventually, this will be the code that is the manager for the scraper that keep running all the time
     '''
-    #status = web_scraper.make_selenium_request("NFL")
-    new_status = web_scraper.new_get_prizepicks("NFL")
-    if isinstance(new_status, int):
-        
-        print(f"Something went wrong with errorcode: {new_status}")
+
+    scrape_status = web_scraper.new_get_prizepicks("NFL")
+    if isinstance(scrape_status, int):
+        print(f"Something went wrong with errorcode: {scrape_status}")
+        exit()
     
-    my_parser.parse_webpage(new_status)
+    wp_data = my_parser.parse_webpage(scrape_status)
+    sql_status = send_to_sql(wp_data)
