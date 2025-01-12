@@ -50,14 +50,14 @@ def dev_files_check():
         print(f"Source directory '{src_dir}' does not exist.")
         return
 
-    # Create the destination directory if it doesn't exist
+    '''---Create the destination directory if it doesn't exist---'''
     os.makedirs(dest_dir, exist_ok=True)
 
-    # Iterate over files in the source directory
+    '''---Iterate over files in the source directory---'''
     for filename in os.listdir(src_dir):
         src_file = os.path.join(src_dir, filename)
 
-        # Check if it's a file (not a directory)
+        '''---Check if it's a file (not a directory)---'''
         if os.path.isfile(src_file):
             dest_file = os.path.join(dest_dir, filename)
             shutil.copy2(src_file, dest_file)

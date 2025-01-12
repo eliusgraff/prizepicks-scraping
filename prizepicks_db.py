@@ -2,6 +2,7 @@ import mysql.connector
 import helper
 from datetime import datetime, timedelta, timezone
 from parsed_data import parsed_data
+from my_logs import log_perf
 
 class one_to_many:
     '''
@@ -36,11 +37,6 @@ def is_equal(newval, oldval):
     b_new = bool_equalities.get(str(newval))
     b_old = bool_equalities.get(str(oldval))
     if b_new is not None and b_old is not None:
-
-        #validation - delete this check
-        if b_new != b_old:
-            print(f"Bools not equal new:{b_new} olod:{b_old}")
-
         return b_new == b_old
     
     if isinstance(newval,float) and isinstance(oldval, float):
@@ -291,9 +287,7 @@ def list_to_db(table, headers, data, cursor):
 
     '''---Going through each row of data and checking if it needs to be added or updated---'''
     for row in data:
-    
         row_id = row[id_index]
-
         if row_id not in existing_data_dict:
 
             '''---If there is no existing data for this id, then add it in---'''
@@ -304,10 +298,6 @@ def list_to_db(table, headers, data, cursor):
             for i, val in enumerate(row):
 
                 if not is_equal(val,existing_data_dict[row_id][i]):
-                    
-                    '''print(f"New row:\t{row}")
-                    print(f"Existing:\t{existing_data_dict[row_id]}")
-                    print(f"Change in {headers[i]}:{existing_data_dict[row_id][i]}->{val}")'''
                     update_existing = f"UPDATE {table} SET islatest = FALSE WHERE islatest = TRUE AND id = {row[id_index]};"
                     cursor.execute(update_existing)
                     main_list.append(row+[existing_data_dict[row_id][-2]+1,True])
@@ -334,16 +324,11 @@ def send_to_sql(parsed_data_obj):
     conn = create_db_connection()
     cursor = conn.cursor()
 
-    print("Parsing my_data into mySQL")
-    '''---Sending the values for the 'data' table to mySQL---'''
+    '''---Send the values for the 'data' table to mySQL---'''
     list_to_data_table(parsed_data_obj.data_order, parsed_data_obj.data_values, cursor)
-    print("Parsing to mySQL complete")
 
-    print("Parsing includes into mySQL")
-    '''---Going through all the includes and adding those now---'''
-    for name, cols in parsed_data_obj.included_tag_orders.items():
-
-        list_to_db(name, cols, parsed_data_obj.included_tag_values[name], cursor)
+    '''---Send all the 'include' values to database---'''
+    includes_to_db(parsed_data_obj, cursor)
 
     '''---Saving changes to the databse and closing the connection---'''
     #I should look into what it best practice and when to commit the sql executions I think I like doing it at the end so that if something goes wrong then just nothing is added and it's no problem
@@ -367,6 +352,7 @@ def read_query(cursor, query):
 def execute_query(cursor, query):
     cursor.execute(query)
 
+@log_perf
 def list_to_data_table( headers, data, cursor):
     '''
     Function which will send passed in data into the 'data' table of the local mySQL database
@@ -678,7 +664,6 @@ def interm_to_db(table, new_data, existing_data, base_id_index, target_id_index,
             if new_targets != existing_targets:
             
                 '''---If values for the base_id have changed, then need to add in all the new targets---'''
-                print(f"Change in relationships for {base_id} from\n{existing_targets} \nto \n{new_targets}")
                 '''---sql query to update all the old data to not being latest---'''
                 update_existing = f"UPDATE {table} SET islatest = FALSE WHERE islatest = TRUE AND id = {base_id};"
                 cursor.execute(update_existing)
@@ -695,3 +680,11 @@ def interm_to_db(table, new_data, existing_data, base_id_index, target_id_index,
                 new_data_list.append([base_id, t_id, 0, True])
 
     return new_data_list       
+
+@log_perf
+def includes_to_db(parsed_data_obj, cursor):
+    '''
+    Function takes a parsed_data object and turns all the includes data from that object into mysql
+    '''
+    for name, cols in parsed_data_obj.included_tag_orders.items():
+        list_to_db(name, cols, parsed_data_obj.included_tag_values[name], cursor)

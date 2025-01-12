@@ -2,7 +2,9 @@ from bs4 import BeautifulSoup
 import json
 from datetime import datetime
 from parsed_data import parsed_data
+from my_logs import log_perf
 
+@log_perf
 def parse_webpage(webpage):
     '''
     This function takes in an HTML webpage from prizepicks API request, strips the HTML from it and just goes through each of the tags in the json
@@ -54,19 +56,6 @@ def parse_webpage(webpage):
         "stat_type_id"
     ]
 
-    '''---Define large data structure where all the parsed data will reside until it is sent to mySQL---'''
-    data_values = []
-
-    print("Parsing 'data' tags...")
-    for item in json_data['data']:
-
-        '''---For each of the tags in the 'data' tag, send them all to the 'data' parser to get the necessary data from the json---'''
-        my_data = parse_data(item, data_order)
-        data_values.append(my_data)
-
-    print(f"Parsed 'data' with {len(data_values)} entries")
-    '''---After the 'data' section of the json, it goes to the 'included' tag which can contain many different tags---'''
-
     '''---Defining order for all the the types of tags within the 'included' tag---'''
     included_tag_orders = {
         "duration":             ["id", "name"],
@@ -80,90 +69,19 @@ def parse_webpage(webpage):
         "team":                 ["id", "primary_color", "abbreviation", "name", "tertiary_color", "secondary_color", "market"]
     }
 
-    '''---Large structure where all the data will get stored before going to mysql---'''
-    included_tag_values = {
-        "duration": [],
-        "league": [],
-        "league_data": [],
-        "lfg_ignored_leagues": [],
-        "new_player": [],
-        "projection_type": [],
-        "stat_average": [],
-        "stat_type": [],
-        "team": []
-    }
+    '''---Define large data structure where all the parsed data will reside until it is sent to mySQL---'''
+    data_values = parse_all_data(json_data, data_order)
 
-    print("Parsing 'included' tags...")
-
-    for item in json_data['included']:
-
-        '''---Going through all of the 'included' tags and parsing them one by one---'''
-        my_type = item['type']
-        '''
-        'new_player' and 'league' tags have relationship dicts which make them different from 
-        the other tags in the 'included' tag, so they need their own parsers
-        '''
-        if my_type in included_tag_orders:
-
-            parsed_include = parse_included(item, included_tag_orders[my_type])
-
-        else:
-            '''---Since all of the tags should be parsed, this checks to make sure all tag types are correctly parsed and saved---'''
-            print(f"Concerned about this one, please review:")
-
-            for k,v in item.items():
-
-                print(f"{k}\t{v}")
-
-            print("Review needed. Exiting....")
-            exit()
-
-        '''---Adding the parsed tag to the big data dictionary to store before sending to mySQL---'''
-
-        '''
-        'league' and 'stat_type' tags can include additional list of data, but not always. In the case that the list of data is included in
-        there, this must be handled uniquely to get the list of data also saved in the database. This code handles those cases.
-        '''
-        if my_type == "league" and parsed_include[-1] is not None:
-
-            league_data = parsed_include[-1]
-            data_list = league_data[0]
-            timestamp = league_data[1]
-            league_id = parsed_include[0]
-            for val in data_list:
-
-                included_tag_values['league_data'].append([league_id, timestamp, val])
-
-            parsed_include[-1] = True
-        
-        elif my_type == "stat_type":
-
-            if isinstance(parsed_include[1], list) and len(parsed_include) > 0:
-
-                ignored_leagues = parsed_include[1]
-                for league_num in ignored_leagues:
-
-                    '''
-                    To find this data in the SQL db, the 'lfg_ignored_leagues' table rows will keep track of the stat_type id and
-                    the league number this way it can be recalled based on the stat_type id or vice versa
-                    '''
-                    lfg_row = [parsed_include[0], league_num]
-                    included_tag_values['lfg_ignored_leagues'].append(lfg_row)
-
-                parsed_include[1] = True
-
-            else: parsed_include[1] = None
-
-        included_tag_values[my_type].append(parsed_include)
-        my_tot = 0
-    
+    '''---After the 'data' section of the json, it goes to the 'included' tag which can contain many different tags---'''
+    included_tag_values = parse_all_includes(json_data, included_tag_orders)
+ 
+    my_tot = 0
     for k,v in included_tag_values.items():
         '''---checking that all of the rows are the correct length before sending them to sql---'''
         for row in v: assert len(row) == len(included_tag_orders[k])
         '''---Counting total number of entries parsed---'''
         my_tot+=len(v)
 
-    print(f"Parsed 'include' with {my_tot} entries")
     return parsed_data(data_order, data_values, included_tag_orders, included_tag_values)
 
 def parse_included(my_tag, order):
@@ -373,3 +291,75 @@ def valid_wp(wp):
         return False
     
     return to_validate
+
+@log_perf
+def parse_all_data(json_data, order):
+    data_values = []
+    print("Parsing 'data' tags...")
+    for item in json_data['data']:
+
+        '''---For each of the tags in the 'data' tag, send them all to the 'data' parser to get the necessary data from the json---'''
+        my_data = parse_data(item, order)
+        data_values.append(my_data)
+
+    print(f"Parsed 'data' with {len(data_values)} entries")
+    return data_values
+
+@log_perf
+def parse_all_includes(json_data, tag_orders):
+        
+    tag_values = dict()
+    for each in tag_orders:
+        tag_values[each] = list()
+
+    for item in json_data['included']:
+        '''---Going through all of the 'included' tags and parsing them one by one---'''
+        my_type = item['type']
+        '''
+        'new_player' and 'league' tags have relationship dicts which make them different from 
+        the other tags in the 'included' tag, so they need their own parsers
+        '''
+        if my_type in tag_orders:
+            parsed_include = parse_included(item, tag_orders[my_type])
+
+        else:
+            '''---Since all of the tags should be parsed, this checks to make sure all tag types are correctly parsed and saved---'''
+            print(f"New tag type found: {my_type}. Cannot parse this yet. Proceeding, but may have unintended consequences in the future.")
+            for k,v in item.items():
+                print(f"{k}\t{v}")
+
+        '''---Adding the parsed tag to the big data dictionary to store before sending to mySQL---'''
+
+        '''
+        'league' and 'stat_type' tags can include additional list of data, but not always. In the case that the list of data is included in
+        there, this must be handled uniquely to get the list of data also saved in the database. This code handles those cases.
+        '''
+        if my_type == "league" and parsed_include[-1] is not None:
+            league_data = parsed_include[-1]
+            data_list = league_data[0]
+            timestamp = league_data[1]
+            league_id = parsed_include[0]
+            for val in data_list:
+                tag_values['league_data'].append([league_id, timestamp, val])
+
+            parsed_include[-1] = True
+        
+        elif my_type == "stat_type":
+            if isinstance(parsed_include[1], list) and len(parsed_include) > 0:
+                ignored_leagues = parsed_include[1]
+                for league_num in ignored_leagues:
+                    '''
+                    To find this data in the SQL db, the 'lfg_ignored_leagues' table rows will keep track of the stat_type id and
+                    the league number this way it can be recalled based on the stat_type id or vice versa
+                    '''
+                    lfg_row = [parsed_include[0], league_num]
+                    tag_values['lfg_ignored_leagues'].append(lfg_row)
+                parsed_include[1] = True
+
+            else: 
+                parsed_include[1] = None
+
+        tag_values[my_type].append(parsed_include)
+    
+    return tag_values
+
