@@ -2,6 +2,7 @@ import os
 import web_scraper
 import my_parser
 from prizepicks_db import send_to_sql
+import my_logs
 
 class PassingException(Exception):
     pass
@@ -93,7 +94,8 @@ def validate():
     except Exception as E:
         print("Did not pass parsing of wp1")
         raise E
-    input("Complete with wp1")
+    exit("Finished with wp1")
+
     print("\n>>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF WP2<<<<<<<<<<<<<<")
     wp2 = get_wp_example("example_wp_inflight.html", local = True, ow = False, league="NFL")
     print("\n>>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF API1<<<<<<<<<<<<<<")
@@ -169,12 +171,13 @@ def validate():
     
     return True
 
+
 if __name__ == "__main__":
     '''
     Eventually, this will be the code that is the manager for the scraper that keep running all the time
     '''
-
-    scrape_status = web_scraper.new_get_prizepicks("NFL")
+    my_logs.create_loggers()
+    scrape_status = get_wp_example()
     if isinstance(scrape_status, int):
         print(f"Something went wrong with errorcode: {scrape_status}")
         exit()
