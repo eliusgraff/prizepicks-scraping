@@ -171,13 +171,12 @@ def validate():
     
     return True
 
-
 if __name__ == "__main__":
     '''
     Eventually, this will be the code that is the manager for the scraper that keep running all the time
     '''
     my_logs.create_loggers()
-    scrape_status = get_wp_example()
+    scrape_status = web_scraper.new_get_prizepicks("NFL")
     if isinstance(scrape_status, int):
         print(f"Something went wrong with errorcode: {scrape_status}")
         exit()

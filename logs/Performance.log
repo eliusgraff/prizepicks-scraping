@@ -9,3 +9,70 @@ parse_all_includes:0.004401199999999994
 parse_webpage:0.11704190000000003
 list_to_data_table:29.0489003
 includes_to_db:0.09021470000000065
+-------NEW RUN STARTING-------
+parse_all_data:0.38207579999999997
+-------NEW RUN STARTING-------
+parse_all_data:4.1502128
+parse_all_includes:0.004963399999999396
+parse_webpage:4.1954087
+list_to_data_table:0.4780389000000005
+includes_to_db:0.5108274000000002
+-------NEW RUN STARTING-------
+-------NEW RUN STARTING-------
+-------NEW RUN STARTING-------
+-------NEW RUN STARTING-------
+parse_all_data:2.7703378000000005
+-------NEW RUN STARTING-------
+parse_all_data:2.3607593999999996
+-------NEW RUN STARTING-------
+parse_all_data:1.3496029999999997
+-------NEW RUN STARTING-------
+parse_all_data:1.1829743000000001
+-------NEW RUN STARTING-------
+parse_all_data:1.5168758000000002
+-------NEW RUN STARTING-------
+parse_all_data:1.2660198999999999
+-------NEW RUN STARTING-------
+parse_all_data:1.3063437000000002
+parse_all_includes:0.0024724000000002633
+parse_webpage:1.3414522
+-------NEW RUN STARTING-------
+parse_all_data:1.6406676
+parse_all_includes:0.0024204000000001002
+parse_webpage:1.6737004000000004
+-------NEW RUN STARTING-------
+parse_all_data:0.029837800000000136
+parse_all_includes:0.00364539999999991
+parse_webpage:0.20161459999999964
+-------NEW RUN STARTING-------
+parse_all_data:0.42670150000000007
+parse_all_includes:0.0033262999999998932
+parse_webpage:0.44550990000000024
+-------NEW RUN STARTING-------
+parse_all_data:1.1861282000000002
+parse_all_includes:0.003459099999999715
+parse_webpage:1.2179938
+list_to_data_table:0.35533789999999943
+-------NEW RUN STARTING-------
+parse_all_data:0.8056614
+parse_all_includes:0.0011007000000002876
+parse_webpage:0.8584395999999996
+list_to_data_table:0.2522475000000002
+-------NEW RUN STARTING-------
+parse_all_data:0.4717783999999998
+parse_all_includes:0.0012441000000000813
+parse_webpage:0.5022492000000001
+list_to_data_table:0.4456040999999997
+includes_to_db:0.06759160000000008
+-------NEW RUN STARTING-------
+parse_all_data:0.4046223000000002
+parse_all_includes:0.008511500000000005
+parse_webpage:0.4359751000000003
+list_to_data_table:0.3153462
+includes_to_db:0.04081829999999975
+-------NEW RUN STARTING-------
+parse_all_data:0.7170589999999999
+parse_all_includes:0.0015252000000001154
+parse_webpage:0.7364072999999998
+list_to_data_table:0.3264526000000001
+includes_to_db:0.04409200000000002
