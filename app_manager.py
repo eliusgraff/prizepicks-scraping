@@ -78,107 +78,80 @@ def get_wp_example(fn = "example_wp.html", local = True, ow = False, league = "N
     
     return wp
 
+def handle_parser_error(wp_ec, retry_request):
+    
+    err_msgs = {
+        1 : "---WARNING:Webpage not valid, retry webpage...",
+        2 : "---WARNING:Got JSONDecodeError while creating dict from json, retry webpage...",
+        3 : "Len of data parsed is 0. Quitting parsing.",
+        4 : "---WARNING:Data tags sent but no includes. Unexpected. Quitting parsing, moving to the next.",
+        5 : "---WARNING:Found row length inconcisent with expectations. Quitting parsing, moving to the next"
+    }
+    
+    if wp_ec in err_msgs:
+        print(err_msgs[wp_ec])
+    else:
+        print(f"Returned with error code {wp_ec}")
+        return False
+    if wp_ec == 2:
+        print(f"Retry web scrape")
+        new_data = my_parser.parse_webpage(web_scraper.new_get_prizepicks(retry_request))
+        if isinstance(new_data, int):
+            return False
+        else:
+            return new_data
+    return False
+
+    
+
 def validate():
     '''
     Function used for testing development and validation of branch for gatting data from the parsed state and into mySQL.
     Takes no arguemtns so that test design is not limited by passed-in vars and returns true when everything passes!!!
     '''
+    known_leagues = {
+    "NFL":9,
+    "CFB":15,
+    "MLB":2,
+    "WNBA":3,
+    "Soccer":82
+    }
 
-    '''---Testing errors from bad caller---'''
-    print(">>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF WP1<<<<<<<<<<<<<<")
-    wp1 = get_wp_example("example_wp.html", local = True, ow = False, league="NFL")
-    
-    try:
-        if not my_parser.parse_webpage(wp1):
-            raise Exception
-    except Exception as E:
-        print("Did not pass parsing of wp1")
-        raise E
-    exit("Finished with wp1")
+    my_logs.create_loggers()
+    for each in known_leagues:
+        
+        scrape_data = web_scraper.new_get_prizepicks(each)
+        if isinstance(scrape_data, int):
+            print(f"Failed scrpaing with status: {scrape_data}")
+            print("Skipping to next league")
+            continue
+        wp_data = my_parser.parse_webpage(scrape_data)
+        '''
+        Since there are cases where json parses come up empty or incorrect, the parser will return different codes
+        to manage that, this alerts user of those conditions and stops program from proceeding with unexpected inputs
+        If expected input is confirmed, then go ahead and send it to SQL
+        '''
+        #Add this to event logging
+        if isinstance(wp_data, int):
+            wp_data = handle_parser_error(wp_data, each)
+            if wp_data is False:
+                continue
 
-    print("\n>>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF WP2<<<<<<<<<<<<<<")
-    wp2 = get_wp_example("example_wp_inflight.html", local = True, ow = False, league="NFL")
-    print("\n>>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF API1<<<<<<<<<<<<<<")
-    api1 = get_wp_example("no_file_name1.html", local = True, ow = False, league="NFL")
-    print("\n>>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF API2<<<<<<<<<<<<<<")
-    api2 = get_wp_example("no_file_name2.html", local = True, ow = False, league="CFB")
-    print("\n>>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF API3<<<<<<<<<<<<<<")
-    api3 = get_wp_example("no_file_name3.html", local = True, ow = False, league="WNBA")
-    print("\n>>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF API4<<<<<<<<<<<<<<")
-    api4 = get_wp_example("no_file_name4.html", local = True, ow = False, league="Soccer")
-    print("\n>>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF EMPTY_FILE<<<<<<<<<<<<<<")
-    empty_file = get_wp_example("empty.html", local = True, ow = False, league="NFL")
-    print("\n>>>>>>>>>>>>>>>PERFORMING DATA COLLECTION OF BAD_HTML<<<<<<<<<<<<<<")
-    bad_html = get_wp_example("bad_html.html", local = True, ow = False)
+        else:
+            send_to_sql(wp_data)
 
-    print("\n>>>>>>>>>>>>>>>PERFORMING PARSING OF WP1<<<<<<<<<<<<<<")
-    try:
-        if not my_parser.parse_webpage(wp1):
-            raise Exception
-    except Exception as E:
-        print("Did not pass parsing of wp1")
-        raise E
-    print("\n>>>>>>>>>>>>>>>PERFORMING PARSING OF WP2<<<<<<<<<<<<<<")
-    try:
-        if not my_parser.parse_webpage(wp2):
-            raise Exception
-    except Exception as E:
-        print("Did not pass parsing of wp2")
-        raise E
-    print("\n>>>>>>>>>>>>>>>PERFORMING PARSING OF API1<<<<<<<<<<<<<<")
-    try:
-        if not my_parser.parse_webpage(api1):
-            raise Exception
-    except Exception as E:
-        print("Did not pass parsing of api1")
-        raise E
-    print("\n>>>>>>>>>>>>>>>PERFORMING PARSING OF API2<<<<<<<<<<<<<<")
-    try:
-        if not my_parser.parse_webpage(api2):
-            raise Exception
-    except Exception as E:
-        print("Did not pass parsing of api2")
-        raise E
-    print("\n>>>>>>>>>>>>>>>PERFORMING PARSING OF API3<<<<<<<<<<<<<<")
-    try:
-        if not my_parser.parse_webpage(api3):
-            raise Exception
-    except Exception as E:
-        print("Did not pass parsing of api3")
-        raise E
-    print("\n>>>>>>>>>>>>>>>PERFORMING PARSING OF API4<<<<<<<<<<<<<<")
-    try:
-        if not my_parser.parse_webpage(api4):
-            raise Exception
-    except Exception as E:
-        print("Did not pass parsing of api4")
-        raise E
-    print("\n>>>>>>>>>>>>>>>PERFORMING PARSING OF EMPTY_FILE<<<<<<<<<<<<<<")
-    try:
-        if my_parser.parse_webpage(empty_file):
-            raise Exception
-    except Exception as E:
-        print("Did not pass parsing of empty_file")
-        raise E
-    print("\n>>>>>>>>>>>>>>>PERFORMING PARSING OF BAD_HTML<<<<<<<<<<<<<<")
-    try:
-        if my_parser.parse_webpage(bad_html):
-            print("Did not pass parsing of bad html_file")
-            raise Exception
-    except Exception as E:
-        print("Did not pass parsing of bad html_file")
-        raise E
-    
     return True
 
 if __name__ == "__main__":
     '''
     Eventually, this will be the code that is the manager for the scraper that keep running all the time
     '''
+    validate()
+    exit()
     my_logs.create_loggers()
     scrape_status = web_scraper.new_get_prizepicks("NFL")
     if isinstance(scrape_status, int):
-        print(f"Something went wrong with errorcode: {scrape_status}")
+        print(f"Something went wrong scraping with errorcode: {scrape_status}")
         exit()
     
     wp_data = my_parser.parse_webpage(scrape_status)

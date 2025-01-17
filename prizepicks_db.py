@@ -98,10 +98,14 @@ def create_db_connection(db_name="prizepicks", host_name= None, user_name = None
     return connection
 
 def write_to_mysql(data, table_name, cursor):
-    
+    '''
+    This function is just a wrapper for the executemany function. Rather than adding more lines all over the place for that, I'm just using this one
+    so that it only has to be ugly once. This also allows for one place to handle and attemp to recover from mysql errors that may arise.
+    '''
     if len(data) == 0:
         return
     
+    #catch and fix errors from the sql execution - especailly when names are too long, just turnace in those instances
     insert_query = f"INSERT INTO {table_name} VALUES ({', '.join(['%s']*len(data[0]) )});"
     cursor.executemany(insert_query, data)
 

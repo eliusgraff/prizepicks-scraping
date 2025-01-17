@@ -66,21 +66,31 @@ def parse_webpage(webpage):
     
     soup = valid_wp(webpage)
     if soup is False:
-        return False
-    
-    json_data = json.loads(soup.find('pre').text)
+        return (1)
+    try:
+        json_data = json.loads(soup.find('pre').text)
+    except json.decoder.JSONDecodeError:
+        return(2)
 
     '''---Define large data structure where all the parsed data will reside until it is sent to mySQL---'''
     data_values = parse_all_data(json_data)
+    if len(data_values) == 0:
+        return(3)
 
     '''---After the 'data' section of the json, it goes to the 'included' tag which can contain many different tags---'''
     included_tag_values = parse_all_includes(json_data, INCLUDED_TAG_ORDERS)
+    if len(included_tag_values) == 0:
+        return(4)
  
     my_tot = 0
     for k,v in included_tag_values.items():
         '''---checking that all of the rows are the correct length before sending them to sql---'''
-        for row in v: assert len(row) == len(INCLUDED_TAG_ORDERS[k])
+        for row in v: 
+            if len(row) != len(INCLUDED_TAG_ORDERS[k]):
+                #Log this info!
+                return(5)
         '''---Counting total number of entries parsed---'''
+        #maybe this gets added into perf log somehow
         my_tot+=len(v)
 
     return parsed_data(DATA_ORDER, data_values, INCLUDED_TAG_ORDERS, included_tag_values)
@@ -167,40 +177,41 @@ def parse_data(data_item):
     ignored = {
         'stat_average',
         'custom_image',
-        'stat_display_name' #maybe revisit this one
+        'stat_display_name', #maybe revisit this one
+        'trending_count'
     }
     '''---Setting up structure to track what fields have been parsed from the tag---'''
-    not_found = set(DATA_ORDER)
 
     '''---Where the data is not held in a sub-dict, can add that info directly from the json tag to my_dict without iterating over the sub-dict---'''
     my_dict['type'] = data_item['type']
     my_dict['id'] = int(data_item['id'])
-    not_found.remove('type')
-    not_found.remove('id')
 
     '''---Parsing attributes sub-dict---'''
     for attr, val in data_item['attributes'].items():
         if attr in my_dict:
             my_dict[attr] = val
-            not_found.remove(attr)
 
         elif attr not in ignored:
             print(f"Unex attrib tag: {attr} in data id {my_dict['id']}. attrs:\n{data_item['attributes']}")
             print()
 
-    '''---Parsing relationships sub-dict data and data from its sub-dicts---'''
-    parsed_rels = set(data_item['relationships'].keys())
-    
+    '''---Parsing relationships sub-dict data and data from its sub-dicts---'''    
     relationship_dicts = ["league", "new_player", "duration", "game"]
     relationship_data = ["score"]
 
     for sub_dict in relationship_dicts:
-        my_dict[sub_dict] = data_item['relationships'][sub_dict]['data'].get('id')
-        not_found.remove(sub_dict)
+        temp = data_item['relationships'].get(sub_dict)
+        if temp is None:
+            my_dict[sub_dict] = None
+        else:
+            my_dict[sub_dict] = temp['data'].get('id')
 
     for sub_dict in relationship_data:
-        my_dict[sub_dict] = data_item['relationships'][sub_dict].get('data')
-        not_found.remove(sub_dict)
+        temp = data_item['relationships'].get(sub_dict)
+        if temp is None:
+            my_dict[sub_dict] = None
+        else:
+            my_dict[sub_dict] = temp.get('data')
     
     '''
     These are 2 exceptions where the naming is not the same between prizepicks api and my db since thes'stat_type' and 'projection_type' 
@@ -209,32 +220,8 @@ def parse_data(data_item):
     #If these are stored in another table, I may not need to save everything twice, I can just get this info from the other table using the ids - will check on that as work continues
     my_dict["projection_type_id"] = data_item['relationships']['projection_type']['data'].get('id')
     my_dict["stat_type_id"] = data_item['relationships']['stat_type']['data'].get('id')
-    not_found.remove('projection_type_id')
-    not_found.remove('stat_type_id')
-    
-    '''
-    This code block is just for dev/validation purposes it just prints out anything that was expected by not seen by the parser
-    '''
-    if len(not_found) > 0:
-        '''---Since some things are not garunteed to be in a data tag, this makes sure it is only notifying tester if something expected is missing---'''
-        to_print = []
-        for item in not_found:
-            '''---For combo projections where players are on differnt teams, a game_id may not be assigned, so this accounts for that case---'''
-            if item == 'game_id' and data_item['attributes']['stat_type'].find("(Combo)") >-1:
-                continue
-            elif item not in not_promised:
-                to_print.append(item)
 
-        '''---Printing out everything in the tag and all the things missing from the tag---'''
-        if len(to_print) > 0:
-            print(f"\n\n------------From below tag------------\n")
-            for key, val in data_item.items(): print(f"{key}\t{val}")
-            print("\n-----------Could not find data for the following-----------\n")
-            for k in not_found: print(f"{k},")
-            print()
-            input("[Data]Review if this is ok...")
-
-    return [my_dict[key] for key in DATA_ORDER]
+    return [my_dict.get(key) for key in DATA_ORDER]
 
 def valid_wp(wp):
     '''
