@@ -118,27 +118,29 @@ def validate():
     }
 
     my_logs.create_loggers()
-    for each in known_leagues:
-        
-        scrape_data = web_scraper.new_get_prizepicks(each)
-        if isinstance(scrape_data, int):
-            print(f"Failed scrpaing with status: {scrape_data}")
-            print("Skipping to next league")
-            continue
-        wp_data = my_parser.parse_webpage(scrape_data)
-        '''
-        Since there are cases where json parses come up empty or incorrect, the parser will return different codes
-        to manage that, this alerts user of those conditions and stops program from proceeding with unexpected inputs
-        If expected input is confirmed, then go ahead and send it to SQL
-        '''
-        #Add this to event logging
-        if isinstance(wp_data, int):
-            wp_data = handle_parser_error(wp_data, each)
-            if wp_data is False:
+    
+    for _ in range(10):
+        for each in known_leagues:
+            
+            scrape_data = web_scraper.new_get_prizepicks(each)
+            if isinstance(scrape_data, int):
+                print(f"Failed scrpaing with status: {scrape_data}")
+                print("Skipping to next league")
                 continue
+            wp_data = my_parser.parse_webpage(scrape_data)
+            '''
+            Since there are cases where json parses come up empty or incorrect, the parser will return different codes
+            to manage that, this alerts user of those conditions and stops program from proceeding with unexpected inputs
+            If expected input is confirmed, then go ahead and send it to SQL
+            '''
+            #Add this to event logging
+            if isinstance(wp_data, int):
+                wp_data = handle_parser_error(wp_data, each)
+                if wp_data is False:
+                    continue
 
-        else:
-            send_to_sql(wp_data)
+            else:
+                send_to_sql(wp_data)
 
     return True
 
