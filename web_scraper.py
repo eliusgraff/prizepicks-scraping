@@ -29,7 +29,7 @@ def new_get_prizepicks(league):
         "CFB":15,
         "MLB":2,
         "WNBA":3,
-        "Soccer":82,
+        "SOCCER":82,
         "CFB2H": 150
     }
     league_num = known_leagues.get(league.upper())
@@ -41,5 +41,6 @@ def new_get_prizepicks(league):
     single_stat = "true"
     game_mode = "pickem"
     api_call =  f"https://api.prizepicks.com/projections?league_id={league_num}&per_page={page_num}&single_stat={single_stat}&game_mode={game_mode}"
+    print(f"\n---Scraping: {api_call}\n")
     webpage = uc.loop().run_until_complete(scrape(api_call))
     return webpage
