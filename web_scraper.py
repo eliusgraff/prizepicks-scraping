@@ -52,9 +52,6 @@ def game_status(id):
     Currently does not accept a list of games, but it should in the future!
     '''
     game_api_call = f"https://api.prizepicks.com/games?external_game_ids={id}&limit=50"
-    league_ids_api = "https://api.prizepicks.com/leagues?state_code=CA&game_mode=pickem"
-    pass
+    #league_ids_api = "https://api.prizepicks.com/leagues?state_code=CA&game_mode=pickem"
+    return uc.loop().run_until_complete(scrape(game_api_call))
     
-def bet_status(id):
-    raise NotImplementedError
-    pass

@@ -4,6 +4,20 @@ from datetime import datetime
 from parsed_data import parsed_data
 from my_logs import log_perf
 
+def discard_html(webpage):
+    '''
+    Function to get rid of the HTML around the json data that we are interested in parsing.
+    Will return false if webpage is not in expected format and fails check for valid_wp.
+
+    Returns dict of the json data.
+    '''
+    soup = valid_wp(webpage)
+    if soup is False:
+        return False
+    
+    return json.loads(soup.find('pre').text)
+
+
 @log_perf
 def parse_webpage(webpage):
     '''
@@ -16,13 +30,8 @@ def parse_webpage(webpage):
     Parsing the data tags will return a list of values to coorespond to each of the values in the 'data_order' list. Before adding it all into the mySQL db.
     '''
     '''---Get the json data from the raw html---'''
-    
-    soup = valid_wp(webpage)
-    if soup is False:
-
-        return False
-    
-    json_data = json.loads(soup.find('pre').text)
+        
+    json_data = discard_html(webpage)
 
     '''---Defining order that data is parsed in so that it can be aligned with SQL---'''
     data_order = [
@@ -363,3 +372,21 @@ def parse_all_includes(json_data, tag_orders):
     
     return tag_values
 
+def parse_game(webpage):
+    '''
+    This function is to facilitate parsing the game data from the prizepicks API.
+    '''
+    json_data = discard_html(webpage)
+
+    if json_data is False:
+        return 1
+    
+    #collect data about the actual game to update the DB with
+        #teams, league name, scheduled_time, started_at, completed_at, status
+
+    #collect data about player stats from the game
+        #Need enough info to identify the player: Full name, team, position - since the pplayer ID seems inconsistent with what is parsed in the projections data
+        #will parse and send over all the player stats and let the to_tb functions handle how to deal with that chaos
+
+    #probably need to create classes to bundle this data up and return botht he game data and all the player data back to the caller
+    #Will return this all in a dict where 'game' is a dict with the game data in it and 'players' is a list of 'player_stat' classes for all the player stats

@@ -4,9 +4,6 @@ import my_parser
 from prizepicks_db import send_to_sql
 import my_logs
 
-class PassingException(Exception):
-    pass
-
 def save_wp_data(wp, fn):
     '''
     Function to take data from PrizePicks API and save it as a file.
@@ -172,17 +169,15 @@ def validate():
     return True
 
 def get_game_status():
-    example_ids = ['NFL_game_C7mkbeOdkX5xpB3iEfbRBFPh', '5c0c9ff0-3d99-4844-bc73-03f1719be4f8', 'NFL_game_BAHT0NZDKRH7a4FVdNcKE80Q', 'NFL_game_by0OpBnpzFHQEqj4EYN9yLjl']
+    example_ids = [
+        'NFL_game_C7mkbeOdkX5xpB3iEfbRBFPh', 
+        '5c0c9ff0-3d99-4844-bc73-03f1719be4f8', 
+        'NFL_game_BAHT0NZDKRH7a4FVdNcKE80Q', 
+        'NFL_game_by0OpBnpzFHQEqj4EYN9yLjl'
+        ]
     for id in example_ids:
         temp = web_scraper.game_status(id)
-        input(temp)
-
-def get_bet_status():
-    example_ids = [3177795, 3171944, 3171564, 3171351,3171565]
-    for id in example_ids:
-        temp = web_scraper.bet_status(id)
-        input(temp)
-
+        my_parser.parse_game(temp)
 
 if __name__ == "__main__":
     '''
