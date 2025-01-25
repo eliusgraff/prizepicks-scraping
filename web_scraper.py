@@ -51,7 +51,9 @@ def game_status(id):
 
     Currently does not accept a list of games, but it should in the future!
     '''
+    temp = "https://api.prizepicks.com/games?external_game_ids=NFL_game_C7mkbeOdkX5xpB3iEfbRBFPh&limit=50"
     game_api_call = f"https://api.prizepicks.com/games?external_game_ids={id}&limit=50"
+    
     #league_ids_api = "https://api.prizepicks.com/leagues?state_code=CA&game_mode=pickem"
     return uc.loop().run_until_complete(scrape(game_api_call))
     

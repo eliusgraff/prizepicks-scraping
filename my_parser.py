@@ -1,7 +1,7 @@
 from bs4 import BeautifulSoup
 import json
 from datetime import datetime
-from parsed_data import parsed_data
+from parsed_data import parsed_data, player_stats
 from my_logs import log_perf
 
 def discard_html(webpage):
@@ -16,7 +16,6 @@ def discard_html(webpage):
         return False
     
     return json.loads(soup.find('pre').text)
-
 
 @log_perf
 def parse_webpage(webpage):
@@ -372,6 +371,17 @@ def parse_all_includes(json_data, tag_orders):
     
     return tag_values
 
+def parse_player_stats(plyr_stats):
+    '''
+    This function goes through the 'player_stats' tag of a game data object from Prizepicks API call and turns it into a list of player_stat objects.
+    game_stats objects will be sent to mysql db eventually.
+    '''
+    my_player_stats = list()
+    for player_id, data in plyr_stats.items():
+        my_player_stats.append(player_stats(data['player_name'], player_id, data['position'], data['dnp'], data['periods']))
+
+
+
 def parse_game(webpage):
     '''
     This function is to facilitate parsing the game data from the prizepicks API.
@@ -381,12 +391,39 @@ def parse_game(webpage):
     if json_data is False:
         return 1
     
-    #collect data about the actual game to update the DB with
-        #teams, league name, scheduled_time, started_at, completed_at, status
+    game_stats = dict()
 
-    #collect data about player stats from the game
-        #Need enough info to identify the player: Full name, team, position - since the pplayer ID seems inconsistent with what is parsed in the projections data
-        #will parse and send over all the player stats and let the to_tb functions handle how to deal with that chaos
+    for game_tag in json_data['data']:
 
-    #probably need to create classes to bundle this data up and return botht he game data and all the player data back to the caller
-    #Will return this all in a dict where 'game' is a dict with the game data in it and 'players' is a list of 'player_stat' classes for all the player stats
+        if game_tag['external_game_id'] in game_stats:
+            print(f"Duplicate game found: {game_tag['external_game_id']}. Ignoring this game since it is a duplicate")
+            continue
+
+        status = game_tag['attributes']['status']
+        awy_team = game_tag['relationships']['away_team_data']['data']['id']
+        hme_team = game_tag['relationships']['home_team_data']['data']['id']
+        strtd_at = game_tag['attributes']['metadata']['timing']['completed_at']
+        cmpltd_at = game_tag['attributes']['metadata']['timing']['completed_at']
+        home_score = game_tag['attributes']['metadata']['game_info']['score']['home']
+        awy_score = game_tag['attributes']['metadata']['game_info']['score']['away']
+        
+        #This is a bit tricky, the game data uses its own local id it seems for each of the team that get stats
+        #but there is enough data to map this internal id to the external oid that is used with the projections
+        #so this is collecting that data so that the players can be mapped to the right external team id
+        id_mapping = {
+            game_tag['attributes']['metadata']['game_info']['teams']['away']['id'] : awy_team,
+            game_tag['attributes']['metadata']['game_info']['teams']['home']['id'] : hme_team
+        }
+        plyr_sts = parse_player_stats(game_tag['metadata']['player_stats'], id_mapping)
+        game_stats[game_tag['external_game_id']] = {
+            "status": status,
+            "away_team": awy_team,
+            "home_team": hme_team,
+            "started_at": strtd_at,
+            "completed_at": cmpltd_at,
+            "home_score": home_score,
+            "away_score": awy_score,
+            "player_stats": plyr_sts
+        }
+
+    return game_stats
