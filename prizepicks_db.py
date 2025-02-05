@@ -18,7 +18,37 @@ class one_to_many:
         self.target_ids = t_id_set
         self.version = ver
         self.islatest = latest
+
+def get_cols(table_names):
+    '''
+    Function takes in a list of table names and returns a dict where the keys are the table names and the values are lists of the columns in those tables
+    '''
+
+    conn = create_db_connection()
+    cursor = conn.cursor()
+    my_query = str()
+    cols_dict = dict()
+    if isinstance(table_names, list):
+        for table in table_names:
+            cursor.execute(f"SHOW COLUMNS FROM {table};")
+            cols = cursor.fetchall()
+            cols_dict[table] = [each[0] for each in cols]
         
+    elif isinstance(table_names, str):
+        cursor.execute(f"SHOW COLUMNS FROM {table_names};")
+        cols = cursor.fetchall()
+        cols_dict[table_names] = [each[0] for each in cols]
+
+    else:
+        raise TypeError(f"table_names must be a list or a str. Got type: {type(table_names)}")
+    
+    conn.close()
+
+    '''for k,v in cols_dict.items(): print(f"{k}:\t{v}")
+    print()'''
+
+    return cols_dict
+
 def is_equal(newval, oldval):
     '''
     Since types get sticks when parsing with numbers being its or stings as well as bools being represented as 1,0, True, False, and None. Some additional logic is needed to account for

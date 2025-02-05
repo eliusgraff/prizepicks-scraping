@@ -43,7 +43,7 @@ def get_wp_example(fn = "example_wp.html", local = True, ow = False, league = "N
     if ow_local:
 
         print(f"OW Local '{fn}'...")
-        wp = web_scraper.make_selenium_request(my_lg)
+        wp = web_scraper.new_get_prizepicks(my_lg)
         save_wp_data(wp, fn)
 
     elif use_local:
@@ -53,7 +53,7 @@ def get_wp_example(fn = "example_wp.html", local = True, ow = False, league = "N
 
             '''---If local file does not exist then create and fill one with default API request---'''
             print(f"File '{fn} does not exist or is empty")
-            wp = web_scraper.make_selenium_request(my_lg)
+            wp = web_scraper.new_get_prizepicks(my_lg)
             if ow_local is True:
 
                 print(f"Re-writing {fn}")
@@ -71,7 +71,7 @@ def get_wp_example(fn = "example_wp.html", local = True, ow = False, league = "N
     else:
 
         print("Parsing data from internet request...")
-        wp = web_scraper.make_selenium_request(my_lg)
+        wp = web_scraper.new_get_prizepicks(my_lg)
     
     return wp
 

@@ -3,6 +3,11 @@ import json
 from datetime import datetime
 from parsed_data import parsed_data, player_stats
 from my_logs import log_perf
+from prizepicks_db import get_cols
+
+ignored_fields = {
+    "projection":[]
+}
 
 def discard_html(webpage):
     '''
@@ -16,6 +21,7 @@ def discard_html(webpage):
         return False
     
     return json.loads(soup.find('pre').text)
+
 
 @log_perf
 def parse_webpage(webpage):
@@ -33,52 +39,15 @@ def parse_webpage(webpage):
     json_data = discard_html(webpage)
 
     '''---Defining order that data is parsed in so that it can be aligned with SQL---'''
-    data_order = [
-        "type",
-        "id",
-        "adjusted_odds",
-        "board_time",
-        "description",
-        "end_time",
-        "flash_sale_line_score",
-        "game_id",
-        "hr_20",
-        "in_game",
-        "is_live",
-        "is_promo",
-        "line_score",
-        "odds_type",
-        "projection_type",
-        "rank",
-        "refundable",
-        "start_time",
-        "stat_type",
-        "status",
-        "tv_channel",
-        "updated_at",
-        "duration",
-        "league",
-        "new_player",
-        "projection_type_id",
-        "score",
-        "stat_type_id"
-    ]
 
-    '''---Defining order for all the the types of tags within the 'included' tag---'''
-    included_tag_orders = {
-        "duration":             ["id", "name"],
-        "league":               ["id", "active", "f2p_enabled", "icon", "image_url", "last_five_games_enabled", "league_icon_id", "name", "projections_count", "rank", "show_trending", "is_data"],
-        "league_data":          ["league_id", "time_set", "data"],
-        "lfg_ignored_leagues":  ["id", "league_num"],
-        "new_player":           ["id", "name", "position", "image_url", "display_name", "combo", "league_id", "team_id"],
-        "projection_type":      ["id", "name"],
-        "stat_average":         ["id", "average", "count"],
-        "stat_type":            ["id", "lfg_ignored_leagues", "name", "rank"],
-        "team":                 ["id", "primary_color", "abbreviation", "name", "tertiary_color", "secondary_color", "market"]
-    }
+    parsed_tags = ["projection", "duration", "league", "league_data", "lfg_ignored_leagues", "new_player", "projection_type", "stat_average","stat_type", "team"]
+
+    col_orders = get_cols(parsed_tags)
 
     '''---Define large data structure where all the parsed data will reside until it is sent to mySQL---'''
-    data_values = parse_all_data(json_data, data_order)
+    data_values = parse_all_data(json_data, col_orders['projection'])
+
+    included_tag_orders = {k: v for k, v in col_orders.items() if k != 'projection'}
 
     '''---After the 'data' section of the json, it goes to the 'included' tag which can contain many different tags---'''
     included_tag_values = parse_all_includes(json_data, included_tag_orders)
@@ -90,7 +59,7 @@ def parse_webpage(webpage):
         '''---Counting total number of entries parsed---'''
         my_tot+=len(v)
 
-    return parsed_data(data_order, data_values, included_tag_orders, included_tag_values)
+    return parsed_data(col_orders['projection'], data_values, included_tag_orders, included_tag_values)
 
 def parse_included(my_tag, order):
     '''
@@ -373,14 +342,15 @@ def parse_all_includes(json_data, tag_orders):
 
 def parse_player_stats(plyr_stats):
     '''
+    Not used by kept for future use if needed. Since prizepicks does not share all the player data for each game anymore, another way to get this must be found (probably from another website/api)
+    
     This function goes through the 'player_stats' tag of a game data object from Prizepicks API call and turns it into a list of player_stat objects.
     game_stats objects will be sent to mysql db eventually.
     '''
+    raise NotImplementedError
     my_player_stats = list()
     for player_id, data in plyr_stats.items():
         my_player_stats.append(player_stats(data['player_name'], player_id, data['position'], data['dnp'], data['periods']))
-
-
 
 def parse_game(webpage):
     '''
@@ -407,14 +377,6 @@ def parse_game(webpage):
         home_score = game_tag['attributes']['metadata']['game_info']['score']['home']
         awy_score = game_tag['attributes']['metadata']['game_info']['score']['away']
         
-        #This is a bit tricky, the game data uses its own local id it seems for each of the team that get stats
-        #but there is enough data to map this internal id to the external oid that is used with the projections
-        #so this is collecting that data so that the players can be mapped to the right external team id
-        id_mapping = {
-            game_tag['attributes']['metadata']['game_info']['teams']['away']['id'] : awy_team,
-            game_tag['attributes']['metadata']['game_info']['teams']['home']['id'] : hme_team
-        }
-        plyr_sts = parse_player_stats(game_tag['metadata']['player_stats'], id_mapping)
         game_stats[game_tag['external_game_id']] = {
             "status": status,
             "away_team": awy_team,
@@ -423,7 +385,6 @@ def parse_game(webpage):
             "completed_at": cmpltd_at,
             "home_score": home_score,
             "away_score": awy_score,
-            "player_stats": plyr_sts
         }
 
     return game_stats
