@@ -19,6 +19,14 @@ class one_to_many:
         self.version = ver
         self.islatest = latest
 
+SQL_RESERVED_WORDS = {
+    "type",
+    "description",
+    "rank",
+    "status",
+    "id"
+}
+
 def get_cols(table_names):
     '''
     Function takes in a list of table names and returns a dict where the keys are the table names and the values are lists of the columns in those tables
@@ -26,26 +34,45 @@ def get_cols(table_names):
 
     conn = create_db_connection()
     cursor = conn.cursor()
-    my_query = str()
     cols_dict = dict()
     if isinstance(table_names, list):
         for table in table_names:
             cursor.execute(f"SHOW COLUMNS FROM {table};")
             cols = cursor.fetchall()
+            #Should add logic here to do the sql conversion to remove 'my_' from the column names
             cols_dict[table] = [each[0] for each in cols]
-        
+        print(f"Started withh:\n{cols_dict}\n")
+        #very poor way to go through and make sure that all the mysql reserved word column names are obvuscated from rest of program by removeing the 'my_' from the beginning of some col names
+        for table in cols_dict:
+            final_list = list()
+            table_cols = cols_dict[table]
+            for col_name in table_cols:
+                if col_name[:2] == "my_":
+                    final_list.append(col_name[3:])
+                else:
+                    final_list.append(col_name)
+            cols_dict[table] = final_list
+
     elif isinstance(table_names, str):
         cursor.execute(f"SHOW COLUMNS FROM {table_names};")
         cols = cursor.fetchall()
         cols_dict[table_names] = [each[0] for each in cols]
+        print(f"Started with h:\n{cols_dict}\n")
+        #very poor way to go through and make sure that all the mysql reserved word column names are obvuscated from rest of program by removeing the 'my_' from the beginning of some col names
+        final_list = list()
+        for col_name in cols_dict[table_names]:
+            if col_name[:2] == "my_":
+                final_list.append(col_name[3:])
+            else:
+                final_list.append(col_name)
+        cols_dict[table_names] = final_list
 
     else:
         raise TypeError(f"table_names must be a list or a str. Got type: {type(table_names)}")
     
     conn.close()
 
-    '''for k,v in cols_dict.items(): print(f"{k}:\t{v}")
-    print()'''
+    print(f"ended with:\n{cols_dict}\n")
 
     return cols_dict
 

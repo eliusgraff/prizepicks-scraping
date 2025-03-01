@@ -22,7 +22,6 @@ def discard_html(webpage):
     
     return json.loads(soup.find('pre').text)
 
-
 @log_perf
 def parse_webpage(webpage):
     '''
