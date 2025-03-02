@@ -19,7 +19,7 @@ class one_to_many:
         self.version = ver
         self.islatest = latest
 
-
+#Rest of mysql reserved words here: https://dev.mysql.com/doc/refman/8.4/en/keywords.html
 SQL_RESERVED_WORDS = {
     "type",
     "description",
