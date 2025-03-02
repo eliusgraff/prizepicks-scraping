@@ -19,19 +19,30 @@ class one_to_many:
         self.version = ver
         self.islatest = latest
 
+
 SQL_RESERVED_WORDS = {
     "type",
     "description",
     "rank",
     "status",
-    "id"
 }
+
+def remove_mysql_prefix(name_list):
+    '''
+    Shitty code that I should just do with list comprehension, but this is easier to read for now
+    '''
+    clean_list = list()
+    for col_name in name_list:
+        if len(col_name) > 3 and col_name[:3] == "my_":
+            clean_list.append(col_name[3:])
+        else:
+            clean_list.append(col_name)
+    return clean_list
 
 def get_cols(table_names):
     '''
     Function takes in a list of table names and returns a dict where the keys are the table names and the values are lists of the columns in those tables
     '''
-
     conn = create_db_connection()
     cursor = conn.cursor()
     cols_dict = dict()
@@ -41,38 +52,21 @@ def get_cols(table_names):
             cols = cursor.fetchall()
             #Should add logic here to do the sql conversion to remove 'my_' from the column names
             cols_dict[table] = [each[0] for each in cols]
-        print(f"Started withh:\n{cols_dict}\n")
         #very poor way to go through and make sure that all the mysql reserved word column names are obvuscated from rest of program by removeing the 'my_' from the beginning of some col names
         for table in cols_dict:
-            final_list = list()
-            table_cols = cols_dict[table]
-            for col_name in table_cols:
-                if col_name[:2] == "my_":
-                    final_list.append(col_name[3:])
-                else:
-                    final_list.append(col_name)
-            cols_dict[table] = final_list
+            cols_dict[table] = remove_mysql_prefix(cols_dict[table])
 
     elif isinstance(table_names, str):
         cursor.execute(f"SHOW COLUMNS FROM {table_names};")
         cols = cursor.fetchall()
         cols_dict[table_names] = [each[0] for each in cols]
-        print(f"Started with h:\n{cols_dict}\n")
         #very poor way to go through and make sure that all the mysql reserved word column names are obvuscated from rest of program by removeing the 'my_' from the beginning of some col names
-        final_list = list()
-        for col_name in cols_dict[table_names]:
-            if col_name[:2] == "my_":
-                final_list.append(col_name[3:])
-            else:
-                final_list.append(col_name)
-        cols_dict[table_names] = final_list
+        cols_dict[table_names] = remove_mysql_prefix(cols_dict[table_names])
 
     else:
         raise TypeError(f"table_names must be a list or a str. Got type: {type(table_names)}")
     
     conn.close()
-
-    print(f"ended with:\n{cols_dict}\n")
 
     return cols_dict
 
@@ -385,7 +379,8 @@ def send_to_sql(parsed_data_obj):
     list_to_data_table(parsed_data_obj.data_order, parsed_data_obj.data_values, cursor)
 
     '''---Send all the 'include' values to database---'''
-    includes_to_db(parsed_data_obj, cursor)
+    if parsed_data_obj.included_tag_orders is not None:
+        includes_to_db(parsed_data_obj, cursor)
 
     '''---Saving changes to the databse and closing the connection---'''
     #I should look into what it best practice and when to commit the sql executions I think I like doing it at the end so that if something goes wrong then just nothing is added and it's no problem
@@ -427,20 +422,6 @@ def list_to_data_table( headers, data, cursor):
                 ]
 
     '''
-    '''---Setting up vairables needed for function---'''
-    reserved_words = {
-        "status",
-        "rank",
-        "description",
-        "type"
-        }
-
-    allow_change = {
-        "board_time", 
-        "my_rank", 
-        "updated_at",
-        "line_score"
-        }
 
     '''---Some fields I expect to be datetimes, so if they are given, parse them as datetime---'''
     my_dts={
@@ -450,32 +431,20 @@ def list_to_data_table( headers, data, cursor):
         "updated_at": headers.index("updated_at")
     }
 
-    '''---Some fields are boolean, but SQL returns them as 1 or 0, so I need to know which ones I need to cast correctly---'''
-    my_bools = {
-        "islatest",
-        "hr_20",
-        "in_game",
-        "is_live",
-        "is_promo",
-        "refundable"
-    }
     insert_list = list()
-    insert_line_score = list()
-    updated_ids = set()
-    table = 'my_data'
+    change_list = list()
+    table = 'projection'
     #Can this be done with list comprehension?
     fix_headers = []
     for header in headers:
-        if header in reserved_words: fix_headers.append(f"my_{header}")
+        if header in SQL_RESERVED_WORDS: fix_headers.append(f"my_{header}")
         else: fix_headers.append(header)
     id_index = headers.index("id")
-    line_index = headers.index("line_score")
 
     '''---Make sure columns are aligned with DB---'''
     cols_query = f"SHOW COLUMNS FROM {table};"
     cursor.execute(cols_query)
     cols_list = cursor.fetchall()
-    fix_headers = fix_headers + ['my_version','islatest'] 
     try:
         assert len(fix_headers) == len(cols_list)   
         for i, v in enumerate(cols_list):
@@ -490,7 +459,6 @@ def list_to_data_table( headers, data, cursor):
     id_list = tuple(values[id_index] for values in data)
     my_len = len(id_list)
     if my_len == 0:
-
         print(f"No data to add for {table}. Returning...")
         return
     
@@ -498,11 +466,12 @@ def list_to_data_table( headers, data, cursor):
 
         id_list = f"({id_list[0]})"
 
-    my_query = f"SELECT * FROM {table} WHERE ISLATEST = TRUE AND ID IN {id_list};"
+    my_query = f"SELECT * FROM {table} WHERE ID IN {id_list};"
     existing_data = read_query(cursor, my_query)
     data_dict = dict()
 
-    '''---Making sure that the data in the db already does not have double-up of same ids that are 'latest'---'''
+    #With new database design, I should be able to use the projection id as the primary key for the table and remove this block of code!
+    '''---Making sure that the data in the db already does not have double-up of same ids---'''
     for row in existing_data:
 
         if row[id_index] in existing_data:
@@ -511,26 +480,26 @@ def list_to_data_table( headers, data, cursor):
             I don't want to spend a lot of time on this, but in the case it does pop up, then this will catch is and whatever is causing it should be patched but if
             nothing else this conflict should be handled logically
             '''
-            print(f"Two instances of 'islatest' for same id:\nExisting:\n{existing_data}\nIncoming:\n{row}")
+            print(f"Two instances of same id:\nExisting:\n{existing_data}\nIncoming:\n{row}")
             print("This is unexpected and should not be possible, plz fix")
             assert row[id_index] not in existing_data
 
         data_dict[row[id_index]] = row
 
-    for row in data:
+    current_time = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    for incoming_row in data:
         '''
         Looping through each of the incoming rows of parsed data to check if they need to be inserted into the db or if existing rows need to be updated
         '''
-        row_id = row[id_index]
-        updated_ids.add(row_id)
+        row_id = incoming_row[id_index]
         for i in my_dts.values():
 
-            if isinstance(row[i], str):
+            if isinstance(incoming_row[i], str):
 
-                my_dt = datetime.fromisoformat(row[i])
+                my_dt = datetime.fromisoformat(incoming_row[i])
                 utc_dt = my_dt.astimezone(timezone.utc)
-                my_val = utc_dt.replace(tzinfo=None)
-                row[i] = my_val
+                incoming_row[i] = utc_dt.replace(tzinfo=None)
         
         '''
         Go through each row of data passed into the function and check to see if there already existing entry in the db for it. 
@@ -538,80 +507,24 @@ def list_to_data_table( headers, data, cursor):
             Elif there exists entry for incoming id already, check if any values have changed
                 if important values have changed - add new row to the db and set old one to not being latest and update version number of the new one
         '''
-        '''---Checking to see what already exists in the db---'''
-        
+        #If projection is not already in the DB, then just add that row and go on to the next one!
         if data_dict.get(row_id) is None:
-
-            '''
-            If there is nothing already in the DB matching the data id, insert the values straight into the DB. Since this is the first time this
-            data is inserted, adding [0,True] to the end of the row to align with the 'version' and 'islatest' columns
-            '''
-            new_row = row + [0,True]
-            insert_list.append(new_row)
-            insert_line_score.append([row_id, row[headers.index("projection_type")], row[line_index]])
+            '''---If there is nothing already in the DB matching the data id, insert the values straight into the DB---'''
+            insert_list.append(incoming_row)
         
+        #If the projection is already in the DB, then check to see if anything has changed. If something is changed then it needs to be logged in the 'projection_change_history' table
         else:
 
-            '''
-            If there is already data for this id in the DB, then go through each column and check to see if anything changed. If something changed that
-            is not expected to regularly change, then the 'islatest' version of the existing row must be changed to False and the 'version' and islatest'
-            columns of the incoming row must be set to be n+1 and True
-            '''
             existing_row = data_dict[row_id]
-            line_score_flag = row[line_index] != existing_row[line_index]
-            disallowed_flag = False
 
             '''---Go through each item in the incomming row and compare it to the existing data, checking if anything has changed---'''
-            for i, val in enumerate(row):
+            for i, val in enumerate(incoming_row):
                 
-                '''---Make sure datetimes are handled correctly--'''
-                #can add this into is_equal function?
-                if (headers[i] in my_dts) and (isinstance(val, datetime)) and (isinstance(existing_row[i], datetime)) and ((val - existing_row[i]) != timedelta(0)):
-                    
-                    print("Times not aligned:")
-                    print("Dissallowed changed")
-                    print(f"er:{existing_row}")
-                    print(f"nr:{row}")
-                    print(f"Change = {i}")
-                    input("StOPPING ON THIS")
-                
-                else:
-
-                    my_val = val
-
-                if not is_equal(my_val, existing_row[i]) and headers[i] not in allow_change:
-                    '''
-                    To keep track of how info changes over time I will keep track of versions over time. In the case I find a field that not 'allowed' to change has changed
-                    then this code adds in the new info and marks the old data as not the latest version.
-                    '''                    
-                    disallowed_flag = True
-                    new_version = existing_row[fix_headers.index('my_version')] + 1
-                    new_row = row + [new_version, True]
-                    update_existing = f"UPDATE {table} SET islatest = FALSE WHERE islatest = TRUE AND id = {row[id_index]};"
-                    cursor.execute(update_existing)
-                    insert_list.append(new_row)
-                    print("Dissallowed changed")
-                    print(f"er:{existing_row}")
-                    print(f"nr:{row}")
-                    print(f"Change = {i}")
-                    input("StOPPING ON THIS")
-                    break
-            
-            if line_score_flag:
-                '''
-                This handles the tracking of changing line scores. In the case where just the line score is changed, then this updates the 'my_data' database to reflect that. If
-                other dissallowed items changed, then this is updated when that data is saved to the DB.
-
-                In any case, if the line_score_flag is raised, then new line needs to be added to the 'spread_history' table
-                '''
-                if not disallowed_flag:
-                    print(" scoreline changed")
-                    update_score = f"UPDATE {table} SET line_score = {my_val} WHERE id = {row[id_index]} AND islatest = TRUE;"
-                    cursor.execute(update_score)
-                
-                insert_line_score.append([row_id, row[headers.index("projection_type")], row[line_index]])
-                
-    add_new_lines(insert_list, insert_line_score, cursor)
+                if existing_row[i] != val:
+                    change_list.append([row_id, fix_headers[i], val, current_time])
+    ###PICK BACK UP HERE###            
+    exit("Need to pick back up here for supporting both the new projection list as well as the change list!")
+    add_new_lines(insert_list, change_list, cursor)
             
 def add_new_lines(my_data_list, spread_history_list, cursor):
     my_data_write_query = f"INSERT INTO my_data VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);"

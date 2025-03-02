@@ -69,9 +69,29 @@ def parse_webpage(webpage):
     parsed_tags = ["projection", "duration", "league", "league_data", "lfg_ignored_leagues", "new_player", "projection_type", "stat_average","stat_type", "team"]
     col_orders = get_cols(parsed_tags)
 
+    '''for col, vals in col_orders.items():
+        print(col)
+        for val in vals:
+            print(f"\t{val}")
+    input("Check to make sure that column names are same as what is parsed from prizepicks API")'''
+    proj_order = col_orders['projection']
     '''---Define large data structure where all the parsed data will reside until it is sent to mySQL---'''
-    data_values = parse_all_proj_data(json_data, col_orders['projection'])
-
+    data_values = parse_proj_json(json_data, proj_order)
+    
+    '''print("          ")
+    for proj in proj_order:
+        print(f"{proj}", end = "\t")
+    print()
+    for i, row in enumerate(data_values):
+        if i == 25:
+            break
+        print(i, end =" : ")
+        for val in row:
+            print(f"{val}", end = "\t")
+        print()'''
+    
+    return parsed_data(col_orders['projection'], data_values, None, None)    
+    #Will need to add support for the 'included' fields later once I have the updated design for projections
     included_tag_orders = {k: v for k, v in col_orders.items() if k != 'projection'}
 
     '''---After the 'data' section of the json, it goes to the 'included' tag which can contain many different tags---'''
@@ -95,32 +115,24 @@ def parse_proj_data(data_item, col_order):
     useful in the future, but for validation, I'm going to leave it in there.
     '''
 
-    input(f"Col order: {col_order}")
-
     #Create and fill up dict to hold all the data for given column
     my_dict = dict()
     for col in col_order:
         my_dict[col] = None
 
-    #Create a list of all the columns seen which are not in the db already
-    col_not_found = dict()
+    for attr, val in data_item.items():
+        if attr in col_order:
+            my_dict[attr] = val
 
     '''---Parsing attributes sub-dict---'''
     for attr, val in data_item['attributes'].items():
-        
         if attr in col_order:
             my_dict[attr] = val
         
-        #just for dev/debugging purposes. Not useful in prod.
-        else:
-            if attr in col_not_found:
-                col_not_found[attr] +=1
-            else:
-                col_not_found[attr] = 1
     
-
     '''---Parsing relationships sub-dict data and data from its sub-dicts---'''
-    relationship_dicts = ["league", "new_player", "duration"]
+    #This also should eventually be able to be parsed based on what is pulled from mysql db, for now hard-code is fine...
+    relationship_dicts = ["league", "new_player", "duration", "game"]
     relationship_data = ["score"]
     for sub_dict in relationship_dicts:
         my_dict[sub_dict] = data_item['relationships'][sub_dict]['data'].get('id')
@@ -138,7 +150,7 @@ def parse_proj_data(data_item, col_order):
     return [my_dict[key] for key in col_order]
 
 @log_perf
-def parse_all_data(json_data, order):
+def parse_proj_json(json_data, order):
     data_values = []
     print("Parsing 'projection' tags...")
     for item in json_data['data']:
@@ -147,5 +159,5 @@ def parse_all_data(json_data, order):
         my_data = parse_proj_data(item, order)
         data_values.append(my_data)
 
-    print(f"Parsed 'data' with {len(data_values)} entries")
+    print(f"Parsed 'projections' with {len(data_values)} entries")
     return data_values
