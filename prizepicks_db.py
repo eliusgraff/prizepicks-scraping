@@ -1,6 +1,7 @@
 import mysql.connector
+from mysql.connector import errorcode
 import helper
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from parsed_data import parsed_data
 from my_logs import log_perf
 
@@ -18,7 +19,58 @@ class one_to_many:
         self.target_ids = t_id_set
         self.version = ver
         self.islatest = latest
-        
+
+#Rest of mysql reserved words here: https://dev.mysql.com/doc/refman/8.4/en/keywords.html
+SQL_RESERVED_WORDS = {
+    "type",
+    "description",
+    "rank",
+    "status"
+}
+
+def remove_mysql_prefix(name_list):
+    '''
+    Shitty code that I should just do with list comprehension, but this is easier to read for now
+    '''
+    clean_list = list()
+    for col_name in name_list:
+        if len(col_name) > 3 and col_name[:3] == "my_":
+            clean_list.append(col_name[3:])
+        else:
+            clean_list.append(col_name)
+    return clean_list
+
+def get_cols(table_names):
+    '''
+    Function takes in a list of table names and returns a dict where the keys are the table names and the values are lists of the columns in those tables
+    '''
+    conn = create_db_connection()
+    cursor = conn.cursor()
+    cols_dict = dict()
+    if isinstance(table_names, list):
+        for table in table_names:
+            cursor.execute(f"SHOW COLUMNS FROM {table};")
+            cols = cursor.fetchall()
+            #Should add logic here to do the sql conversion to remove 'my_' from the column names
+            cols_dict[table] = [each[0] for each in cols]
+        #very poor way to go through and make sure that all the mysql reserved word column names are obvuscated from rest of program by removeing the 'my_' from the beginning of some col names
+        for table in cols_dict:
+            cols_dict[table] = remove_mysql_prefix(cols_dict[table])
+
+    elif isinstance(table_names, str):
+        cursor.execute(f"SHOW COLUMNS FROM {table_names};")
+        cols = cursor.fetchall()
+        cols_dict[table_names] = [each[0] for each in cols]
+        #very poor way to go through and make sure that all the mysql reserved word column names are obvuscated from rest of program by removeing the 'my_' from the beginning of some col names
+        cols_dict[table_names] = remove_mysql_prefix(cols_dict[table_names])
+
+    else:
+        raise TypeError(f"table_names must be a list or a str. Got type: {type(table_names)}")
+    
+    conn.close()
+
+    return cols_dict
+
 def is_equal(newval, oldval):
     '''
     Since types get sticks when parsing with numbers being its or stings as well as bools being represented as 1,0, True, False, and None. Some additional logic is needed to account for
@@ -31,7 +83,7 @@ def is_equal(newval, oldval):
         "0":False,
         "1":True
     }
-    #This can be adjusted to deside how close numbers have to be to be considered the same
+    '''---This can be adjusted to deside how close numbers have to be to be considered the same---'''
     NUMBER_THRESHOLD = 0.999
 
     b_new = bool_equalities.get(str(newval))
@@ -59,7 +111,7 @@ def root_login():
     fields above to get into the SQL DB
     '''
     my_dict = helper.get_secret("mysql")
-    #Checking to make sure all the necessary parts were read from file
+    '''---Checking to make sure all the necessary parts were read from file---'''
     not_found_list = []
     if my_dict.get('un') is None: 
         not_found_list.append('un')
@@ -98,14 +150,11 @@ def create_db_connection(db_name="prizepicks", host_name= None, user_name = None
     return connection
 
 def write_to_mysql(data, table_name, cursor):
-    '''
-    This function is just a wrapper for the executemany function. Rather than adding more lines all over the place for that, I'm just using this one
-    so that it only has to be ugly once. This also allows for one place to handle and attemp to recover from mysql errors that may arise.
-    '''
+    
     if len(data) == 0:
+
         return
     
-    #catch and fix errors from the sql execution - especailly when names are too long, just turnace in those instances
     insert_query = f"INSERT INTO {table_name} VALUES ({', '.join(['%s']*len(data[0]) )});"
     cursor.executemany(insert_query, data)
 
@@ -206,11 +255,24 @@ def list_to_db(table, headers, data, cursor):
         id_title = id_names[table]
 
     id_index = headers.index(id_title)
-    cols_list = get_columns(table, cursor)
+    cols_query = f"SHOW COLUMNS FROM {table};"
+    cursor.execute(cols_query)
+    cols_list = cursor.fetchall()
+    cols_list = [col[0] for col in cols_list]
     main_list = []
 
-    #make sure the cols list looks same as what is expected
-    assert validate_headers(cols_list, headers)
+    '''---make sure the cols list looks same as what is expected---'''
+    #in future may be able to make sure that as long as all the col names are represented in the list passed to the function, then it can be handled
+    #This should probably be it's own function
+    for i, header in enumerate(headers):
+
+        if header != cols_list[i]:
+
+            print(cols_list[i])
+            print(header)
+            print(f"Cols:\t{cols_list}")
+            print(f"Headers:\t{headers}")
+            raise ValueError("Headers do not match")
 
     #I think this can be optimized here with all the casting vs what is actually being used
     id_set = set([row[id_index] for row in data])
@@ -223,10 +285,10 @@ def list_to_db(table, headers, data, cursor):
     
     elif len(id_list) == 1:
 
-        #There are issues with sending tuples of length 1 as a list into mySQL, this fixes that issue with a bandaid
+        '''---There are issues with sending tuples of length 1 as a list into mySQL, this fixes that issue with a bandaid---'''
         id_list = f"({id_list[0]})"
 
-    #Loading all latest data from mysql to compare with new data
+    '''---Loading all latest data from mysql to compare with new data---'''
     my_query = f"SELECT * FROM {table} WHERE ISLATEST = TRUE AND ID IN {id_list};"    
     existing_data = read_query(cursor, my_query)
     
@@ -251,9 +313,8 @@ def list_to_db(table, headers, data, cursor):
         write_to_mysql(main_list, table, cursor)
         return
     
-    #Adding all the existing latest data to a dictionary for quick recall
+    '''---Adding all the existing latest data to a dictionary for quick recall---'''
     existing_data_dict = dict()
-    #Can this be its own function?
     for row in existing_data:
         
         row_id = row[id_index]
@@ -276,16 +337,16 @@ def list_to_db(table, headers, data, cursor):
             
         existing_data_dict[row_id] = row
 
-    #Going through each row of data and checking if it needs to be added or updated
+    '''---Going through each row of data and checking if it needs to be added or updated---'''
     for row in data:
         row_id = row[id_index]
         if row_id not in existing_data_dict:
 
-            #If there is no existing data for this id, then add it in
+            '''---If there is no existing data for this id, then add it in---'''
             main_list.append(row+[0,True])
 
         else:
-            #If there is already data for this id, then check to see if anything has changed
+            '''---If there is already data for this id, then check to see if anything has changed---'''
             for i, val in enumerate(row):
 
                 if not is_equal(val,existing_data_dict[row_id][i]):
@@ -293,7 +354,7 @@ def list_to_db(table, headers, data, cursor):
                     cursor.execute(update_existing)
                     main_list.append(row+[existing_data_dict[row_id][-2]+1,True])
 
-    #Adding all the new data to the database
+    '''---Adding all the new data to the database---'''
     try:
 
         write_to_mysql(main_list, table, cursor)
@@ -309,19 +370,20 @@ def send_to_sql(parsed_data_obj):
     '''
     Function takes in a parsed_data object and is responsible for sending all that information to mySQL database
     '''
-    #assert that the argument is correct data structure
+    '''---assert that the argument is correct data structure---'''
     assert isinstance(parsed_data_obj, parsed_data)
-    #Creating mysql connecrtion and cursor objects so we can set up the transfer
+    '''---Creating mysql connecrtion and cursor objects so we can set up the transfer---'''
     conn = create_db_connection()
     cursor = conn.cursor()
 
-    #Send the values for the 'data' table to mySQL
+    '''---Send the values for the 'data' table to mySQL---'''
     list_to_data_table(parsed_data_obj.data_order, parsed_data_obj.data_values, cursor)
 
-    #Send all the 'include' values to database
-    includes_to_db(parsed_data_obj, cursor)
+    '''---Send all the 'include' values to database---'''
+    if parsed_data_obj.included_tag_orders is not None:
+        includes_to_db(parsed_data_obj, cursor)
 
-    #Saving changes to the databse and closing the connection
+    '''---Saving changes to the databse and closing the connection---'''
     #I should look into what it best practice and when to commit the sql executions I think I like doing it at the end so that if something goes wrong then just nothing is added and it's no problem
     conn.commit()
     conn.close()
@@ -356,27 +418,13 @@ def list_to_data_table( headers, data, cursor):
             ex: [
                 ['172250', 'Jude Bellingham', 'Midfielder', 'https://static.prizepicks.com/images/players/soccer/e83ula4wockmc2xid7185kcq2.webp', 'Jude Bellingham', False, 82, '3372'],
                 ['197873', 'Jyllissa Harris', 'Defender', 'https://static.prizepicks.com/images/teams/NWSL/Houston_Dash.webp', 'Jyllissa Harris', False, 82, '4156'],
-                ['171076', 'Jurgen Strand Larsen', 'Attacker', 'https://static.prizepicks.com/images/manual/JÃ¸rgen Strand Larsen.png', 'JÃ¸rgen Strand Larsen', False, 82, '3356'],
+                ['171076', 'JÃ¸rgen Strand Larsen', 'Attacker', 'https://static.prizepicks.com/images/manual/JÃ¸rgen Strand Larsen.png', 'JÃ¸rgen Strand Larsen', False, 82, '3356'],
                 ['215896', 'Courtney Petersen', 'Defender', 'https://static.prizepicks.com/images/teams/NWSL/Racing_Louisville.webp', 'Courtney Petersen', False, 82, '4160']
                 ]
 
     '''
-    #Setting up vairables needed for function
-    reserved_words = {
-        "status",
-        "rank",
-        "description",
-        "type"
-        }
 
-    allow_change = {
-        "board_time", 
-        "my_rank", 
-        "updated_at",
-        "line_score"
-        }
-
-    #Some fields I expect to be datetimes, so if they are given, parse them as datetime
+    '''---Some fields I expect to be datetimes, so if they are given, parse them as datetime---'''
     my_dts={
         "board_time": headers.index("board_time"),
         "end_time": headers.index("end_time"),
@@ -384,55 +432,36 @@ def list_to_data_table( headers, data, cursor):
         "updated_at": headers.index("updated_at")
     }
 
-    #Some fields are boolean, but SQL returns them as 1 or 0, so I need to know which ones I need to cast correctly
-    my_bools = {
-        "islatest",
-        "hr_20",
-        "in_game",
-        "is_live",
-        "is_promo",
-        "refundable"
-    }
     insert_list = list()
-    insert_line_score = list()
-    updated_ids = set()
-    table = 'my_data'
+    change_list = list()
+    update_list = list()
+    table = 'dev_projection'
+    table_history = f'{table}_change_history'
     #Can this be done with list comprehension?
     fix_headers = []
     for header in headers:
-        if header in reserved_words: fix_headers.append(f"my_{header}")
+        if header in SQL_RESERVED_WORDS: fix_headers.append(f"my_{header}")
         else: fix_headers.append(header)
     id_index = headers.index("id")
-    line_index = headers.index("line_score")
 
-    #Make sure columns are aligned with DB
+    '''---Make sure columns are aligned with DB---'''
     cols_query = f"SHOW COLUMNS FROM {table};"
     cursor.execute(cols_query)
     cols_list = cursor.fetchall()
-    '''---Find a better name than fix_headers---'''
-    fix_headers = fix_headers + ['my_version','islatest']
     try:
-        assert len(fix_headers) == len(cols_list)
+        assert len(fix_headers) == len(cols_list)   
         for i, v in enumerate(cols_list):
-            if v[0] != fix_headers[i]:
-                print(f"v0:{v[0]}\theaders:{headers[i]}")
-                assert v[0] == fix_headers[i]
+            assert v[0] == fix_headers[i]
     except AssertionError as AE:
-        print(f"len of headers = {len(fix_headers)}\tlen of cols = {len(cols_list)}")
-        print(f"Fix headers:")
-        for each in fix_headers:
-            print(each)
-        print(f"\nCols list")
-        for each in cols_list:
-            print(each)
+        print(f"Item comparison:\n{v[0]}\n{fix_headers[i]}")
+        print(f"Fix headers:\n{fix_headers}")
+        print(f"Col list:\n{cols_list}")
         raise AE
 
-
-    #Pull in all existing rows from the db into a dict for quick recall
+    '''---Pull in all existing rows from the db into a dict for quick recall---'''
     id_list = tuple(values[id_index] for values in data)
     my_len = len(id_list)
     if my_len == 0:
-
         print(f"No data to add for {table}. Returning...")
         return
     
@@ -440,11 +469,12 @@ def list_to_data_table( headers, data, cursor):
 
         id_list = f"({id_list[0]})"
 
-    my_query = f"SELECT * FROM {table} WHERE ISLATEST = TRUE AND ID IN {id_list};"
+    my_query = f"SELECT * FROM {table} WHERE ID IN {id_list};"
     existing_data = read_query(cursor, my_query)
     data_dict = dict()
 
-    #Making sure that the data in the db already does not have double-up of same ids that are 'latest'
+    #With new database design, I should be able to use the projection id as the primary key for the table and remove this block of code!
+    '''---Making sure that the data in the db already does not have double-up of same ids---'''
     for row in existing_data:
 
         if row[id_index] in existing_data:
@@ -453,113 +483,144 @@ def list_to_data_table( headers, data, cursor):
             I don't want to spend a lot of time on this, but in the case it does pop up, then this will catch is and whatever is causing it should be patched but if
             nothing else this conflict should be handled logically
             '''
-            print(f"Two instances of 'islatest' for same id:\nExisting:\n{existing_data}\nIncoming:\n{row}")
+            print(f"Two instances of same id:\nExisting:\n{existing_data}\nIncoming:\n{row}")
             print("This is unexpected and should not be possible, plz fix")
             assert row[id_index] not in existing_data
 
         data_dict[row[id_index]] = row
+    ###End of block I should consider deleting###
 
-    for row in data:
+    #This can eventually become a request id and then all the info about a specificc request can be saved. For now we will just save it based on time
+    current_time = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    for incoming_row in data:
         '''
         Looping through each of the incoming rows of parsed data to check if they need to be inserted into the db or if existing rows need to be updated
         '''
-        row_id = row[id_index]
-        updated_ids.add(row_id)
+        row_id = incoming_row[id_index]
         for i in my_dts.values():
-
-            if isinstance(row[i], str):
-
-                my_dt = datetime.fromisoformat(row[i])
+            if isinstance(incoming_row[i], str):
+                my_dt = datetime.fromisoformat(incoming_row[i])
                 utc_dt = my_dt.astimezone(timezone.utc)
-                my_val = utc_dt.replace(tzinfo=None)
-                row[i] = my_val
-        
+                incoming_row[i] = utc_dt.replace(tzinfo=None)
         '''
         Go through each row of data passed into the function and check to see if there already existing entry in the db for it. 
             If there is no existing entry, then add it right in. 
             Elif there exists entry for incoming id already, check if any values have changed
                 if important values have changed - add new row to the db and set old one to not being latest and update version number of the new one
         '''
-        #Checking to see what already exists in the db
-        
+        #If projection is not already in the DB, then just add that row and go on to the next one!
         if data_dict.get(row_id) is None:
-
-            '''
-            If there is nothing already in the DB matching the data id, insert the values straight into the DB. Since this is the first time this
-            data is inserted, adding [0,True] to the end of the row to align with the 'version' and 'islatest' columns
-            '''
-            new_row = row + [0,True]
-            insert_list.append(new_row)
-            insert_line_score.append([row_id, row[headers.index("projection_type")], row[line_index]])
+            '''---If there is nothing already in the DB matching the data id, insert the values straight into the DB---'''
+            insert_list.append(incoming_row)
         
+        #If the projection is already in the DB, then check to see if anything has changed. If something is changed then it needs to be logged in the 'projection_change_history' table
         else:
-
-            '''
-            If there is already data for this id in the DB, then go through each column and check to see if anything changed. If something changed that
-            is not expected to regularly change, then the 'islatest' version of the existing row must be changed to False and the 'version' and islatest'
-            columns of the incoming row must be set to be n+1 and True
-            '''
             existing_row = data_dict[row_id]
-            line_score_flag = row[line_index] != existing_row[line_index]
-            disallowed_flag = False
-
-            #Go through each item in the incomming row and compare it to the existing data, checking if anything has changed
-            for i, val in enumerate(row):
-                
-                #Make sure datetimes are handled correctly--'''
-                #can add this into is_equal function?
-                if (headers[i] in my_dts) and (isinstance(val, datetime)) and (isinstance(existing_row[i], datetime)) and ((val - existing_row[i]) != timedelta(0)):
-                    
-                    print("Times not aligned:")
-                    print("Dissallowed changed")
-                    print(f"er:{existing_row}")
-                    print(f"nr:{row}")
-                    print(f"Change = {i}")
-                    input("StOPPING ON THIS")
-                
-                else:
-
-                    my_val = val
-
-                if not is_equal(my_val, existing_row[i]) and headers[i] not in allow_change:
-                    '''
-                    To keep track of how info changes over time I will keep track of versions over time. In the case I find a field that not 'allowed' to change has changed
-                    then this code adds in the new info and marks the old data as not the latest version.
-                    '''                    
-                    disallowed_flag = True
-                    new_version = existing_row[fix_headers.index('my_version')] + 1
-                    new_row = row + [new_version, True]
-                    update_existing = f"UPDATE {table} SET islatest = FALSE WHERE islatest = TRUE AND id = {row[id_index]};"
-                    cursor.execute(update_existing)
-                    insert_list.append(new_row)
-                    print("Dissallowed changed")
-                    print(f"er:{existing_row}")
-                    print(f"nr:{row}")
-                    print(f"Change = {i}")
-                    input("StOPPING ON THIS")
-                    break
+            changed = False
+            latest_row = list(existing_row)
+            for i, val in enumerate(incoming_row):
+                if existing_row[i] != val:
+                    print(f"Existing val {existing_row[i]} != {val} from incoming. Column: {fix_headers[i]}")
+                    changed = True
+                    change_list.append([row_id, fix_headers[i], existing_row[i], current_time])
+                    latest_row[i] = val
+            if changed:
+                update_list.append(latest_row)
+    
+    add_new_lines(insert_list, change_list, update_list, table, table_history, cursor)
             
-            if line_score_flag:
-                '''
-                This handles the tracking of changing line scores. In the case where just the line score is changed, then this updates the 'my_data' database to reflect that. If
-                other dissallowed items changed, then this is updated when that data is saved to the DB.
+def add_new_lines(my_data_list, data_history_list, update_list, table_name, table_history_name, cursor):
+    
+    #Can I turn this into some kind of string comprehension?
+    if len(my_data_list) > 0:
+        data_alias_list = str()
+        for _ in range(len(my_data_list[0])):
+            data_alias_list += "%s,"
+        my_data_write_query = f"INSERT INTO {table_name} VALUES ({data_alias_list[:-1]});"
 
-                In any case, if the line_score_flag is raised, then new line needs to be added to the 'spread_history' table
-                '''
-                if not disallowed_flag:
-                    print(" scoreline changed")
-                    update_score = f"UPDATE {table} SET line_score = {my_val} WHERE id = {row[id_index]} AND islatest = TRUE;"
-                    cursor.execute(update_score)
-                
-                insert_line_score.append([row_id, row[headers.index("projection_type")], row[line_index]])
-                
-    add_new_lines(insert_list, insert_line_score, cursor)
+    if len(data_history_list) > 0:
+        history_alias_list = str()
+        for _ in range(len(data_history_list[0])):
+            history_alias_list += "%s,"
+        history_write_query = f"INSERT INTO {table_history_name} VALUES({history_alias_list[:-1]});"
+
+    if len(update_list) > 0:
+        replace_alias_string = str()
+        for _ in range(len(update_list[0])):
+            replace_alias_string += "%s,"
+        replace_query = f"REPLACE INTO {table_name} VALUES ({replace_alias_string[:-1]});"
+
+    if len(my_data_list) > 0:
+        try:
+            cursor.executemany(my_data_write_query, my_data_list)
+            print(f"Added {len(my_data_list)} rows to {table_name}")
+        except mysql.connector.Error as sql_err:
+            print(f"ERROR MESSAGE: {sql_err.msg}")
+            print(history_write_query)
+            for row in data_history_list:
+                print(row)
             
-def add_new_lines(my_data_list, spread_history_list, cursor):
-    my_data_write_query = f"INSERT INTO my_data VALUES ({', '.join(['%s']*len(my_data_list[0]) )});"
-    spread_history_write_query = f"INSERT INTO spread_history VALUES(%s,%s,%s,NOW());"
-    cursor.executemany(my_data_write_query, my_data_list)
-    cursor.executemany(spread_history_write_query, spread_history_list)
+    if len(update_list) > 0:
+        try:
+            cursor.executemany(replace_query, update_list)
+            print(f"Updated {len(update_list)} rows in {table_name}")
+        except mysql.connector.Error as sql_err:
+            print(f"ERROR MESSAGE: {sql_err.msg}")
+            print(replace_query)
+            for row in update_list:
+                print(row)
+
+    if len(data_history_list) > 0:
+        try:
+            cursor.executemany(history_write_query, data_history_list)
+            print(f"Added {len(data_history_list)} rows to {table_history_name}")
+        except mysql.connector.Error as sql_err:
+            print(f"ERROR MESSAGE: {sql_err.msg}")
+            print(history_write_query)
+            for row in data_history_list:
+                print(row)
+
+def sqlerr_1256_recovery(rows_list, table_name, cursor):
+    print(f"Error 1265 ocurred during mysql insert of {table_name} values. Attempting to Recover...")
+    recovery = add_by_row(rows_list, cursor, table_name)
+    if recovery[0] == 1:
+        print("1265 recovery failed")
+    elif recovery[0] > 1:
+        print("Partial recovery. Following rows not added:")
+        for row in recovery[1]:
+            print(row)
+    elif recovery[0] == 0:
+        print("All rows added successfully")
+
+def add_by_row(my_data_list, cursor, table_name):
+    #Function to go through line by line of my bulk query and try to see how many of them can be added when I go one at a time
+    #This will also keep track of which rows will fail to be added
+    problem_rows = list()
+    for row in my_data_list:
+        my_query = f"INSERT INTO {table_name} VALUES {tuple(row)};"
+        try:
+            cursor.execute(my_query)
+        except mysql.connector.Error as sql_err:
+            print(f"During recovery of prior error, another error occurred. ErrNum: {sql_err.errno}")
+            print(f"Query: {my_query}")
+            print(sql_err.msg)
+            problem_rows.append(row)
+    
+    errcount = len(problem_rows)
+    if errcount == len(my_data_list):
+        print("Nothing was able to be recovered.")
+        return (1, problem_rows)
+    
+    elif errcount > 0:
+        print(f"Some rows were added successfully, but some were not. ErrCount: {errcount}")
+        return (2, problem_rows)
+        
+    elif errcount == 0:
+        print(f"All rows added successfully")
+        return (0)
+    
+    return (3, problem_rows)
 
 def add_new_line_score( bet_id, bet_type, spread, cursor):
     '''
@@ -640,7 +701,7 @@ def interm_to_db(table, new_data, existing_data, base_id_index, target_id_index,
     for k2,v2 in new_relationships.items():
         print(f"{k2}\t{v2.target_ids}")'''
     
-    #List to hold all the new data to be added to the db
+    '''---List to hold all the new data to be added to the db---'''
     new_data_list = []
 
 
@@ -648,7 +709,7 @@ def interm_to_db(table, new_data, existing_data, base_id_index, target_id_index,
 
         new_targets = new_relationships[base_id].target_ids
 
-        #In case where base_id does not already exist in the db, need to account for it
+        '''---In case where base_id does not already exist in the db, need to account for it---'''
         existing_targets = existing_relationships.get(base_id)
         if existing_targets is not None:
 
@@ -662,134 +723,23 @@ def interm_to_db(table, new_data, existing_data, base_id_index, target_id_index,
         
             if new_targets != existing_targets:
             
-                #If values for the base_id have changed, then need to add in all the new targets
-                #sql query to update all the old data to not being latest
+                '''---If values for the base_id have changed, then need to add in all the new targets---'''
+                '''---sql query to update all the old data to not being latest---'''
                 update_existing = f"UPDATE {table} SET islatest = FALSE WHERE islatest = TRUE AND id = {base_id};"
                 cursor.execute(update_existing)
                 for t_id in new_targets:
 
-                    #Adding in all the new data for this base_id
+                    '''---Adding in all the new data for this base_id---'''
                     new_data_list.append([base_id, t_id, existing_relationships[base_id].version+1, True])
             
         else:
 
             for t_id in new_targets:
 
-                #Adding in all the new data for this base_id
+                '''---Adding in all the new data for this base_id---'''
                 new_data_list.append([base_id, t_id, 0, True])
 
     return new_data_list       
-
-def game_to_db(headers, data, cursor):
-    '''
-    The game tag has some unique considerations that need to be made regarding datetimes. so rather than trying to add these specifics into the other large function,
-    and checking for it every single time, this one will just specifically parse for the game table
-    '''
-    my_dts = {
-        "created_at",
-        "end_time",
-        "start_time",
-        "updated_at"
-    }
-
-    dt_indexes = [headers.index(name) for name in my_dts]
-    id_index = headers.index("id")
-    cols_list = get_columns("game", cursor)
-    assert validate_headers(cols_list, headers)
-    new_ids = set([row[id_index] for row in data])
-    my_len = len(new_ids)
-    id_list = tuple(new_ids)
-    if my_len == 0:
-        print(f"No data to add for 'game'. Returning...")
-        return
-    elif len(id_list) == 1:
-        #There are issues with sending tuples of length 1 as a list into mySQL, this fixes that issue with a bandaid
-        id_list = f"({id_list[0]})"
-
-    #Loading all latest data from mysql to compare with new data
-    my_query = f"SELECT * FROM game WHERE ISLATEST = TRUE AND ID IN {id_list};"    
-    existing_data = read_query(cursor, my_query)
-    main_list = list()
-
-    #Adding all the existing latest data to a dictionary for quick recall
-    existing_data_dict = dict()
-    #can this go into its own function?
-    for row in existing_data:
-        
-        row_id = row[id_index]
-        '''
-        Goes though and checks to make sure there is not multiple rows iwth the same id. This needs to be guarunteed here since I'm 
-        not using primary keys for most of these tables
-        '''
-        if row_id in existing_data_dict:
-
-            print(f"Two instances of id = {row_id} in table 'game'")
-            print("This is unexpected and should not be possible. Removing one of the duplicates for this, but this is nothing more than a band-aid and RC must be fixed!")
-            if remove_duplicate_row('game', row_id, cursor):
-                continue
-
-            else:
-                print("Could not simply remove duplicate row because both rows were not identical.")
-                raise ValueError
-            
-        existing_data_dict[row_id] = row
-
-    #Going through each row of data and checking if it needs to be added or updated
-    for row in data:
-
-        my_row = set_game_datatypes(row, dt_indexes)
-        row_id = my_row[id_index]
-        if row_id not in existing_data_dict:
-            #If there is no existing data for this id, then add it in
-            main_list.append(my_row+[0,True])
-
-        else:
-            #If there is already data for this id, then check to see if anything has changed
-            for i, val in enumerate(my_row):
-                if not is_equal(val, existing_data_dict[row_id][i]):
-                    update_existing = f"UPDATE game SET islatest = FALSE WHERE islatest = TRUE AND id = {my_row[id_index]};"
-                    cursor.execute(update_existing)
-                    main_list.append(my_row+[existing_data_dict[row_id][-2]+1,True])
-
-    #Adding all the new data to the database
-    write_to_mysql(main_list, 'game', cursor)
-
-def set_game_datatypes(data_row, to_cast):
-    '''
-    When parsing data for game table, there are some datetimes which must be accounted for to make sure everything behaves as expected in the future
-    '''
-    to_return = data_row
-    for i in to_cast:
-        if isinstance(data_row[i], str):
-            my_dt = datetime.fromisoformat(data_row[i])
-            utc_dt = my_dt.astimezone(timezone.utc)
-            my_val = utc_dt.replace(tzinfo=None)
-            to_return[i] = my_val
-
-    return to_return
-
-def validate_headers(cols_list, headers):
-    '''
-    Since all headers must be aligned when I 'bulk insert' into mySQL, this function takes in the list of columns and compares them to what is already in mysql.
-    If same, returns true. If different, return false.
-    '''
-    for i, header in enumerate(headers):
-        if header != cols_list[i]:
-            print(cols_list[i])
-            print(header)
-            print(f"Cols:\t{cols_list}")
-            print(f"Headers:\t{headers}")
-            print("Headers do not match")
-            return False
-        
-    return True
-
-def get_columns(table, cursor):
-
-    cols_query = f"SHOW COLUMNS FROM {table};"
-    cursor.execute(cols_query)
-    cols_list = cursor.fetchall()
-    return [col[0] for col in cols_list]
 
 @log_perf
 def includes_to_db(parsed_data_obj, cursor):
@@ -797,8 +747,4 @@ def includes_to_db(parsed_data_obj, cursor):
     Function takes a parsed_data object and turns all the includes data from that object into mysql
     '''
     for name, cols in parsed_data_obj.included_tag_orders.items():
-        #game tags have datetimes which need special care, so this function takes care of this specific function
-        if name == "game":
-            game_to_db(cols, parsed_data_obj.included_tag_values[name], cursor)
-        else:
-            list_to_db(name, cols, parsed_data_obj.included_tag_values[name], cursor)
+        list_to_db(name, cols, parsed_data_obj.included_tag_values[name], cursor)

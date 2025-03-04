@@ -1,69 +1,26 @@
 from bs4 import BeautifulSoup
 import json
 from datetime import datetime
-from parsed_data import parsed_data
+from parsed_data import parsed_data, player_stats
 from my_logs import log_perf
+from prizepicks_db import get_cols
 
-#Define global variables which are consistent with how things must be entered into mySQL
-DATA_ORDER = [
-    "type",
-    "id",
-    "adjusted_odds",
-    "board_time",
-    "description",
-    "discount_name",
-    "discount_percentage",
-    "end_time",
-    "flash_sale_line_score",
-    "game_id",
-    "hr_20",
-    "in_game",
-    "is_live",
-    "is_promo",
-    "line_score",
-    "odds_type",
-    "projection_type",
-    "rank",
-    "refundable",
-    "start_time",
-    "stat_type",
-    "status",
-    "trending_count",
-    "updated_at",
-    "duration",
-    "league",
-    "new_player",
-    "projection_type_id",
-    "score",
-    "stat_type_id",
-    "game"
-]
-
-#Defining order for all the the types of tags within the 'included' tag
-INCLUDED_TAG_ORDERS = {
-    "duration":             ["id", "name"],
-    "league":               ["id", "active", "f2p_enabled", "icon", "image_url", "last_five_games_enabled", "league_icon_id", "name", "projections_count", "rank", "show_trending", "is_data"],
-    "league_data":          ["league_id", "time_set", "data"],
-    "lfg_ignored_leagues":  ["id", "league_num"],
-    "new_player":           ["id", "name", "position", "image_url", "display_name", "combo", "league_id", "team_id"],
-    "projection_type":      ["id", "name"],
-    "stat_average":         ["id", "average", "count"],
-    "stat_type":            ["id", "lfg_ignored_leagues", "name", "rank"],
-    "team":                 ["id", "primary_color", "abbreviation", "name", "tertiary_color", "secondary_color", "market"],
-    "game":                 ["id", "created_at", "end_time", "external_game_id", "is_live", "away", "home", "league_name", "status", "start_time", "updated_at"]
+ignored_fields = {
+    "projection":[]
 }
 
-    #var to keep track of the things that are read from api and intetionally ignored bc there is no known use for them
+def discard_html(webpage):
+    '''
+    Function to get rid of the HTML around the json data that we are interested in parsing.
+    Will return false if webpage is not in expected format and fails check for valid_wp.
 
-#List of the tags that are in the json from prizepicks api, but are not used so not saved in mySQL
-IGNORED = {
-    'stat_average',
-    'custom_image',
-    'stat_display_name', #maybe revisit this one
-    'trending_count',
-    'tv_channel',
-    'today'
-}
+    Returns dict of the json data.
+    '''
+    soup = valid_wp(webpage)
+    if soup is False:
+        return False
+    
+    return json.loads(soup.find('pre').text)
 
 @log_perf
 def parse_webpage(webpage):
@@ -74,40 +31,34 @@ def parse_webpage(webpage):
     Prizepicks API json is formatted with each of the bets in one tag called 'data', then more of the payers and stats info in the 'included' tag
     which fill in additional necessary data about the bets like the player's info, what the stat is and other things.
 
-    Parsing the data tags will return a list of values to coorespond to each of the values in the 'DATA_ORDER' list. Before adding it all into the mySQL db.
+    Parsing the data tags will return a list of values to coorespond to each of the values in the 'data_order' list. Before adding it all into the mySQL db.
     '''
-    #Get the json data from the raw html
-    
-    soup = valid_wp(webpage)
-    if soup is False:
-        return (1)
-    try:
-        json_data = json.loads(soup.find('pre').text)
-    except json.decoder.JSONDecodeError:
-        return(2)
+    '''---Get the json data from the raw html---'''
+        
+    json_data = discard_html(webpage)
 
-    #Define large data structure where all the parsed data will reside until it is sent to mySQL
-    data_values = parse_all_data(json_data)
-    if len(data_values) == 0:
-        return(3)
+    '''---Defining order that data is parsed in so that it can be aligned with SQL---'''
 
-    #After the 'data' section of the json, it goes to the 'included' tag which can contain many different tags
-    included_tag_values = parse_all_includes(json_data, INCLUDED_TAG_ORDERS)
-    if len(included_tag_values) == 0:
-        return(4)
+    parsed_tags = ["projection", "duration", "league", "league_data", "lfg_ignored_leagues", "new_player", "projection_type", "stat_average","stat_type", "team"]
+
+    col_orders = get_cols(parsed_tags)
+
+    '''---Define large data structure where all the parsed data will reside until it is sent to mySQL---'''
+    data_values = parse_all_data(json_data, col_orders['projection'])
+
+    included_tag_orders = {k: v for k, v in col_orders.items() if k != 'projection'}
+
+    '''---After the 'data' section of the json, it goes to the 'included' tag which can contain many different tags---'''
+    included_tag_values = parse_all_includes(json_data, included_tag_orders)
  
     my_tot = 0
     for k,v in included_tag_values.items():
-        #checking that all of the rows are the correct length before sending them to sql
-        for row in v: 
-            if len(row) != len(INCLUDED_TAG_ORDERS[k]):
-                #Log this info!
-                return(5)
-        #Counting total number of entries parsed
-        '''maybe this gets added into perf log somehow'''
+        '''---checking that all of the rows are the correct length before sending them to sql---'''
+        for row in v: assert len(row) == len(included_tag_orders[k])
+        '''---Counting total number of entries parsed---'''
         my_tot+=len(v)
 
-    return parsed_data(DATA_ORDER, data_values, INCLUDED_TAG_ORDERS, included_tag_values)
+    return parsed_data(col_orders['projection'], data_values, included_tag_orders, included_tag_values)
 
 def parse_included(my_tag, order):
     '''
@@ -123,40 +74,46 @@ def parse_included(my_tag, order):
     my_dict = dict()
     not_found = set(order)
 
-    #For 'game', 'new_player' and 'league' tags, some special parsing is needed to get some unique data, so we need to account for that
+    '''---For 'new_player' and 'league' tags, some special parsing is need to get some unique data, so we need to account for that---'''
     if my_tag['type'] == 'new_player':
+
         my_dict['team_id'] = my_tag['relationships']['team_data']['data']['id']
         not_found.remove('team_id')
 
     elif my_tag['type'] == 'league':
+
         temp_data = my_tag['relationships']['projection_filters']['data']
         if len(temp_data) > 0:
+
             my_dict['is_data'] = None
+
         else:
+
             my_dict['is_data'] = (temp_data, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        not_found.remove('is_data')
-    
-    elif my_tag['type'] == 'game':
-        teams_info = my_tag['attributes']['metadata']['game_info']['teams']
-        for team in teams_info:
-            my_dict[team] = teams_info[team]['abbreviation']
-            not_found.remove(team)
 
-        my_dict['league_name'] = my_tag['attributes']['metadata']['league_name']
-        not_found.remove('league_name')
-        
+        not_found.remove('is_data')        
 
-    #All tags have 'id' field which is needed, so hard-code this in
+    '''---All tags have 'id' field which is needed, so hard-code this in---'''
     my_dict['id'] = int(my_tag['id'])
     not_found.remove('id')
 
-    #Look for the remaining tags we need in the attributes tag and add those to the dict
+    '''---Look for the remaining tags we need in the attributes tag and add those to the dict---'''
     remaining = not_found.copy()
     for attr in remaining:
-        my_dict[attr] = my_tag['attributes'][attr]
+
+        try:
+
+            my_dict[attr] = my_tag['attributes'][attr]
+
+        except Exception as e:
+
+            print(my_tag)
+            print(f"Something went wrong atting attribute values to my_dict. Got exception:\n{e}")
+            raise e
+
         not_found.remove(attr)
 
-    #Print statements to help with validation
+    '''---Print statements to help with validation---'''
     #should be able to remove this in the future, not useful for production
     if len(not_found) > 0:
 
@@ -167,9 +124,11 @@ def parse_included(my_tag, order):
         print()
         input("Review if this is ok...")
 
-    return [ my_dict[item] for item in order ]
+    to_return = [ my_dict[item] for item in order ]
 
-def parse_data(data_item):
+    return to_return
+
+def parse_data(data_item, order):
     '''
     Function will be used to parse the 'data' tags in the json from prizepicks api. This takes in a 'data item' which is a tag from the parsed json
     and parses it into columns to eventually send to mysql database. 
@@ -177,49 +136,73 @@ def parse_data(data_item):
     This also has some tracking/debugging in it where I'm tracking which items are not getting filled up or being double-filled. It may not be very 
     useful in the future, but for validation, I'm going to leave it in there.
     '''
-    #Dict sets up all the columns that will be added into SQL db for the data table
-    my_dict = dict()
-    for each in DATA_ORDER:
-        my_dict[each] = None
+    '''---Dict sets up all the columns that will be added into SQL db for the data table---'''
+    my_dict = {
+        "type": None,
+        "id": None,
+        "adjusted_odds": None,
+        "board_time": None,
+        "description": None,
+        "end_time": None,
+        "flash_sale_line_score": None,
+        "game_id": None,
+        "hr_20": None,
+        "in_game": None,
+        "is_live": None,
+        "is_promo": None,
+        "line_score": None,
+        "odds_type": None,
+        "projection_type": None,
+        "rank": None,
+        "refundable": None,
+        "start_time": None,
+        "stat_type": None,
+        "status": None,
+        "tv_channel": None,
+        "updated_at": None,
+        "duration": None,
+        "league": None,
+        "new_player": None,
+        "projection_type_id": None,
+        "score": None,
+        "stat_type_id": None
+    }
 
-    #Some fields are not always in a data tag, so this allows the code to know which things it is ok to not have in a tag
+    '''---Some fields are not always in a data tag, so this allows the code to know which things it is ok to not have in a tag---'''
     not_promised = {
         "hr_20"
     }
 
-    #Setting up structure to track what fields have been parsed from the tag
+    '''---Setting up structure to track what fields have been parsed from the tag---'''
+    not_found = set(my_dict.keys())
 
-    #Where the data is not held in a sub-dict, can add that info directly from the json tag to my_dict without iterating over the sub-dict
+    '''---Where the data is not held in a sub-dict, can add that info directly from the json tag to my_dict without iterating over the sub-dict---'''
     my_dict['type'] = data_item['type']
     my_dict['id'] = int(data_item['id'])
+    not_found.remove('type')
+    not_found.remove('id')
 
-    #Parsing attributes sub-dict
+    '''---Parsing attributes sub-dict---'''
     for attr, val in data_item['attributes'].items():
+
         if attr in my_dict:
+
             my_dict[attr] = val
+            not_found.remove(attr)
 
-        elif attr not in IGNORED:
-            print(f"Unex attrib tag: {attr} in data id {my_dict['id']}. attrs:\n{data_item['attributes']}")
-            print()
-
-    #Parsing relationships sub-dict data and data from its sub-dicts    
-    relationship_dicts = ["league", "new_player", "duration", "game"]
+    '''---Parsing relationships sub-dict data and data from its sub-dicts---'''
+    relationship_dicts = ["league", "new_player", "duration"]
     relationship_data = ["score"]
-
     for sub_dict in relationship_dicts:
-        temp = data_item['relationships'].get(sub_dict)
-        if temp is None:
-            my_dict[sub_dict] = None
-        else:
-            my_dict[sub_dict] = temp['data'].get('id')
+
+        my_dict[sub_dict] = data_item['relationships'][sub_dict]['data'].get('id')
+        not_found.remove(sub_dict)
 
     for sub_dict in relationship_data:
-        temp = data_item['relationships'].get(sub_dict)
-        if temp is None:
-            my_dict[sub_dict] = None
-        else:
-            my_dict[sub_dict] = temp.get('data')
-    
+
+        my_dict[sub_dict] = data_item['relationships'][sub_dict].get('data')
+        not_found.remove(sub_dict)
+
     '''
     These are 2 exceptions where the naming is not the same between prizepicks api and my db since thes'stat_type' and 'projection_type' 
     are already used in the 'attuributes' tag, so need to hard-code these exceptions.
@@ -227,8 +210,32 @@ def parse_data(data_item):
     #If these are stored in another table, I may not need to save everything twice, I can just get this info from the other table using the ids - will check on that as work continues
     my_dict["projection_type_id"] = data_item['relationships']['projection_type']['data'].get('id')
     my_dict["stat_type_id"] = data_item['relationships']['stat_type']['data'].get('id')
+    not_found.remove('projection_type_id')
+    not_found.remove('stat_type_id')
+    
+    '''
+    This code block is just for dev/validation purposes it just prints out anything that was expected by not seen by the parser
+    '''
+    if len(not_found) > 0:
+        '''---Since some things are not garunteed to be in a data tag, this makes sure it is only notifying tester if something expected is missing---'''
+        to_print = []
+        for item in not_found:
+            '''---For combo projections where players are on differnt teams, a game_id may not be assigned, so this accounts for that case---'''
+            if item == 'game_id' and data_item['attributes']['stat_type'].find("(Combo)") >-1:
+                continue
+            elif item not in not_promised:
+                to_print.append(item)
 
-    return [my_dict.get(key) for key in DATA_ORDER]
+        '''---Printing out everything in the tag and all the things missing from the tag---'''
+        if len(to_print) > 0:
+            print(f"\n\n------------From below tag------------\n")
+            for key, val in data_item.items(): print(f"{key}\t{val}")
+            print("\n-----------Could not find data for the following-----------\n")
+            for k in not_found: print(f"{k},")
+            print()
+            input("Review if this is ok...")
+
+    return [my_dict[key] for key in order]
 
 def valid_wp(wp):
     '''
@@ -262,46 +269,42 @@ def valid_wp(wp):
     return to_validate
 
 @log_perf
-def parse_all_data(json_data):
+def parse_all_data(json_data, order):
     data_values = []
     print("Parsing 'data' tags...")
     for item in json_data['data']:
-        #For each of the tags in the 'data' tag, send them all to the 'data' parser to get the necessary data from the json
-        my_data = parse_data(item)
+
+        '''---For each of the tags in the 'data' tag, send them all to the 'data' parser to get the necessary data from the json---'''
+        my_data = parse_data(item, order)
         data_values.append(my_data)
 
     print(f"Parsed 'data' with {len(data_values)} entries")
     return data_values
 
 @log_perf
-def parse_all_includes(json_data, INCLUDED_TAG_ORDERS):
+def parse_all_includes(json_data, tag_orders):
         
     tag_values = dict()
-    for each in INCLUDED_TAG_ORDERS:
+    for each in tag_orders:
         tag_values[each] = list()
 
     for item in json_data['included']:
-        #Going through all of the 'included' tags and parsing them one by one
+        '''---Going through all of the 'included' tags and parsing them one by one---'''
         my_type = item['type']
         '''
         'new_player' and 'league' tags have relationship dicts which make them different from 
         the other tags in the 'included' tag, so they need their own parsers
         '''
-        if my_type in INCLUDED_TAG_ORDERS:
-            parsed_include = parse_included(item, INCLUDED_TAG_ORDERS[my_type])
+        if my_type in tag_orders:
+            parsed_include = parse_included(item, tag_orders[my_type])
 
         else:
-            '''
-            Since all of the tags should be parsed, this checks to make sure all tag types are correctly parsed and saved. If an unknown tag is seen
-            then this alerts the user that an unexpected tag was seen and simply skips over it to avoid KeyError later in the fuction when we try to
-            look for that tag in our dictionary.
-            '''
+            '''---Since all of the tags should be parsed, this checks to make sure all tag types are correctly parsed and saved---'''
             print(f"New tag type found: {my_type}. Cannot parse this yet. Proceeding, but may have unintended consequences in the future.")
             for k,v in item.items():
                 print(f"{k}\t{v}")
-            continue
 
-        #Adding the parsed tag to the big data dictionary to store before sending to mySQL
+        '''---Adding the parsed tag to the big data dictionary to store before sending to mySQL---'''
 
         '''
         'league' and 'stat_type' tags can include additional list of data, but not always. In the case that the list of data is included in
@@ -336,3 +339,51 @@ def parse_all_includes(json_data, INCLUDED_TAG_ORDERS):
     
     return tag_values
 
+def parse_player_stats(plyr_stats):
+    '''
+    Not used by kept for future use if needed. Since prizepicks does not share all the player data for each game anymore, another way to get this must be found (probably from another website/api)
+    
+    This function goes through the 'player_stats' tag of a game data object from Prizepicks API call and turns it into a list of player_stat objects.
+    game_stats objects will be sent to mysql db eventually.
+    '''
+    raise NotImplementedError
+    my_player_stats = list()
+    for player_id, data in plyr_stats.items():
+        my_player_stats.append(player_stats(data['player_name'], player_id, data['position'], data['dnp'], data['periods']))
+
+def parse_game(webpage):
+    '''
+    This function is to facilitate parsing the game data from the prizepicks API.
+    '''
+    json_data = discard_html(webpage)
+
+    if json_data is False:
+        return 1
+    
+    game_stats = dict()
+
+    for game_tag in json_data['data']:
+
+        if game_tag['external_game_id'] in game_stats:
+            print(f"Duplicate game found: {game_tag['external_game_id']}. Ignoring this game since it is a duplicate")
+            continue
+
+        status = game_tag['attributes']['status']
+        awy_team = game_tag['relationships']['away_team_data']['data']['id']
+        hme_team = game_tag['relationships']['home_team_data']['data']['id']
+        strtd_at = game_tag['attributes']['metadata']['timing']['completed_at']
+        cmpltd_at = game_tag['attributes']['metadata']['timing']['completed_at']
+        home_score = game_tag['attributes']['metadata']['game_info']['score']['home']
+        awy_score = game_tag['attributes']['metadata']['game_info']['score']['away']
+        
+        game_stats[game_tag['external_game_id']] = {
+            "status": status,
+            "away_team": awy_team,
+            "home_team": hme_team,
+            "started_at": strtd_at,
+            "completed_at": cmpltd_at,
+            "home_score": home_score,
+            "away_score": awy_score,
+        }
+
+    return game_stats

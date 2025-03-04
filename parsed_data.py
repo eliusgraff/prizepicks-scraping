@@ -24,3 +24,37 @@ class parsed_data:
         self.data_values = d_vals
         self.included_tag_orders = it_order
         self.included_tag_values = it_vals
+
+class player_stats:
+    '''
+    Class to hold all the data that is parsed from the prizepick databse for a players perfromqance in a given game
+    This is important to calaculate if they covered their spread or not.
+
+    name - the name of the player
+
+    id - the player_id assigned in the games request response - this is not the same as the player_id assigned in the
+    projecttions request. I'm not sure that there is a clear way to map them, so will have to use context. I'm saving
+    this just in case it becomes useful in the futures
+
+    team - provides context for which player the stats are for
+
+    position - this is going to be key context to making sure the correct player is attached to the correct stats. In
+    the case where two players with the exact same name playe the same position, on the same team, then this will not be helpful
+
+    dnp - did not play. This is a bool that tells us if the player played or not. PrizePicks uses this to determin if a bet needs
+    to be refunded or not.
+    '''
+    name = None
+    id = None
+    team = None
+    position = None
+    dnp = None
+    stats = None
+
+    def __init__(self, player_name, player_id, player_team, player_postion, player_dnp, player_stats):
+        self.name = player_name
+        self.id = player_id
+        self.team = player_team
+        self.position = player_postion
+        self.dnp = player_dnp
+        self.stats = player_stats
