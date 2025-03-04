@@ -4,6 +4,8 @@ import my_parser
 import new_parser
 from prizepicks_db import send_to_sql
 import my_logs
+import datetime
+import time
 
 def save_wp_data(wp, fn):
     '''
@@ -44,9 +46,13 @@ def validate():
     Function used for testing development and validation of branch for gatting data from the parsed state and into mySQL.
     Takes no arguemtns so that test design is not limited by passed-in vars and returns true when everything passes!!!
     '''
-    my_logs.create_loggers()    
-    wp_data = new_parser.parse_webpage(get_wp_example())
-    sql_status = send_to_sql(wp_data)
+    my_logs.create_loggers()
+    for iter in range(60):
+        print(f"-------API call #{iter} at time {datetime.datetime.now()}--------")
+        wp_data = new_parser.parse_webpage(web_scraper.new_get_prizepicks("NBA"))
+        print(f"SQL status: {send_to_sql(wp_data)}")
+        print(f"...Sleeping...\n")
+        time.sleep(60)
 
 def get_game_status():
     example_ids = [
@@ -64,7 +70,7 @@ if __name__ == "__main__":
     Eventually, this will be the code that is the manager for the scraper that keep running all the time
     '''
     validate()
-    exit()
+    exit("All done with validation")
     my_logs.create_loggers()
     scrape_status = web_scraper.new_get_prizepicks("NBA")
     if isinstance(scrape_status, int):

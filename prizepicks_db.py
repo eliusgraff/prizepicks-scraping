@@ -1,6 +1,7 @@
 import mysql.connector
+from mysql.connector import errorcode
 import helper
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from parsed_data import parsed_data
 from my_logs import log_perf
 
@@ -24,7 +25,7 @@ SQL_RESERVED_WORDS = {
     "type",
     "description",
     "rank",
-    "status",
+    "status"
 }
 
 def remove_mysql_prefix(name_list):
@@ -433,7 +434,9 @@ def list_to_data_table( headers, data, cursor):
 
     insert_list = list()
     change_list = list()
-    table = 'projection'
+    update_list = list()
+    table = 'dev_projection'
+    table_history = f'{table}_change_history'
     #Can this be done with list comprehension?
     fix_headers = []
     for header in headers:
@@ -485,7 +488,9 @@ def list_to_data_table( headers, data, cursor):
             assert row[id_index] not in existing_data
 
         data_dict[row[id_index]] = row
+    ###End of block I should consider deleting###
 
+    #This can eventually become a request id and then all the info about a specificc request can be saved. For now we will just save it based on time
     current_time = datetime.now(timezone.utc).replace(tzinfo=None)
 
     for incoming_row in data:
@@ -494,13 +499,10 @@ def list_to_data_table( headers, data, cursor):
         '''
         row_id = incoming_row[id_index]
         for i in my_dts.values():
-
             if isinstance(incoming_row[i], str):
-
                 my_dt = datetime.fromisoformat(incoming_row[i])
                 utc_dt = my_dt.astimezone(timezone.utc)
                 incoming_row[i] = utc_dt.replace(tzinfo=None)
-        
         '''
         Go through each row of data passed into the function and check to see if there already existing entry in the db for it. 
             If there is no existing entry, then add it right in. 
@@ -514,23 +516,111 @@ def list_to_data_table( headers, data, cursor):
         
         #If the projection is already in the DB, then check to see if anything has changed. If something is changed then it needs to be logged in the 'projection_change_history' table
         else:
-
             existing_row = data_dict[row_id]
-
-            '''---Go through each item in the incomming row and compare it to the existing data, checking if anything has changed---'''
+            changed = False
+            latest_row = list(existing_row)
             for i, val in enumerate(incoming_row):
-                
                 if existing_row[i] != val:
-                    change_list.append([row_id, fix_headers[i], val, current_time])
-    ###PICK BACK UP HERE###            
-    exit("Need to pick back up here for supporting both the new projection list as well as the change list!")
-    add_new_lines(insert_list, change_list, cursor)
+                    print(f"Existing val {existing_row[i]} != {val} from incoming. Column: {fix_headers[i]}")
+                    changed = True
+                    change_list.append([row_id, fix_headers[i], existing_row[i], current_time])
+                    latest_row[i] = val
+            if changed:
+                update_list.append(latest_row)
+    
+    add_new_lines(insert_list, change_list, update_list, table, table_history, cursor)
             
-def add_new_lines(my_data_list, spread_history_list, cursor):
-    my_data_write_query = f"INSERT INTO my_data VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);"
-    spread_history_write_query = f"INSERT INTO spread_history VALUES(%s,%s,%s,NOW());"
-    cursor.executemany(my_data_write_query, my_data_list)
-    cursor.executemany(spread_history_write_query, spread_history_list)
+def add_new_lines(my_data_list, data_history_list, update_list, table_name, table_history_name, cursor):
+    
+    #Can I turn this into some kind of string comprehension?
+    if len(my_data_list) > 0:
+        data_alias_list = str()
+        for _ in range(len(my_data_list[0])):
+            data_alias_list += "%s,"
+        my_data_write_query = f"INSERT INTO {table_name} VALUES ({data_alias_list[:-1]});"
+
+    if len(data_history_list) > 0:
+        history_alias_list = str()
+        for _ in range(len(data_history_list[0])):
+            history_alias_list += "%s,"
+        history_write_query = f"INSERT INTO {table_history_name} VALUES({history_alias_list[:-1]});"
+
+    if len(update_list) > 0:
+        replace_alias_string = str()
+        for _ in range(len(update_list[0])):
+            replace_alias_string += "%s,"
+        replace_query = f"REPLACE INTO {table_name} VALUES ({replace_alias_string[:-1]});"
+
+    if len(my_data_list) > 0:
+        try:
+            cursor.executemany(my_data_write_query, my_data_list)
+            print(f"Added {len(my_data_list)} rows to {table_name}")
+        except mysql.connector.Error as sql_err:
+            print(f"ERROR MESSAGE: {sql_err.msg}")
+            print(history_write_query)
+            for row in data_history_list:
+                print(row)
+            
+    if len(update_list) > 0:
+        try:
+            cursor.executemany(replace_query, update_list)
+            print(f"Updated {len(update_list)} rows in {table_name}")
+        except mysql.connector.Error as sql_err:
+            print(f"ERROR MESSAGE: {sql_err.msg}")
+            print(replace_query)
+            for row in update_list:
+                print(row)
+
+    if len(data_history_list) > 0:
+        try:
+            cursor.executemany(history_write_query, data_history_list)
+            print(f"Added {len(data_history_list)} rows to {table_history_name}")
+        except mysql.connector.Error as sql_err:
+            print(f"ERROR MESSAGE: {sql_err.msg}")
+            print(history_write_query)
+            for row in data_history_list:
+                print(row)
+
+def sqlerr_1256_recovery(rows_list, table_name, cursor):
+    print(f"Error 1265 ocurred during mysql insert of {table_name} values. Attempting to Recover...")
+    recovery = add_by_row(rows_list, cursor, table_name)
+    if recovery[0] == 1:
+        print("1265 recovery failed")
+    elif recovery[0] > 1:
+        print("Partial recovery. Following rows not added:")
+        for row in recovery[1]:
+            print(row)
+    elif recovery[0] == 0:
+        print("All rows added successfully")
+
+def add_by_row(my_data_list, cursor, table_name):
+    #Function to go through line by line of my bulk query and try to see how many of them can be added when I go one at a time
+    #This will also keep track of which rows will fail to be added
+    problem_rows = list()
+    for row in my_data_list:
+        my_query = f"INSERT INTO {table_name} VALUES {tuple(row)};"
+        try:
+            cursor.execute(my_query)
+        except mysql.connector.Error as sql_err:
+            print(f"During recovery of prior error, another error occurred. ErrNum: {sql_err.errno}")
+            print(f"Query: {my_query}")
+            print(sql_err.msg)
+            problem_rows.append(row)
+    
+    errcount = len(problem_rows)
+    if errcount == len(my_data_list):
+        print("Nothing was able to be recovered.")
+        return (1, problem_rows)
+    
+    elif errcount > 0:
+        print(f"Some rows were added successfully, but some were not. ErrCount: {errcount}")
+        return (2, problem_rows)
+        
+    elif errcount == 0:
+        print(f"All rows added successfully")
+        return (0)
+    
+    return (3, problem_rows)
 
 def add_new_line_score( bet_id, bet_type, spread, cursor):
     '''

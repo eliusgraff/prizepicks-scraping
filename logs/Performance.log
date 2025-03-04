@@ -40,3 +40,121 @@ parse_proj_json:0.018668700000000094
 -------NEW RUN STARTING-------
 parse_proj_json:0.006342399999999859
 -------NEW RUN STARTING-------
+-------NEW RUN STARTING-------
+parse_proj_json:0.004608799999999746
+parse_webpage:0.2133411999999999
+-------NEW RUN STARTING-------
+parse_proj_json:0.002445699999999995
+parse_webpage:0.11627469999999995
+-------NEW RUN STARTING-------
+parse_proj_json:0.00405690000000003
+parse_webpage:0.11878009999999994
+-------NEW RUN STARTING-------
+parse_proj_json:0.0055874999999999675
+parse_webpage:0.17795419999999995
+-------NEW RUN STARTING-------
+parse_proj_json:0.004520100000000027
+parse_webpage:0.12086580000000002
+list_to_data_table:0.24559979999999992
+parse_proj_json:0.0028524999999999245
+parse_webpage:0.08668569999999987
+list_to_data_table:0.37411819999999985
+-------NEW RUN STARTING-------
+parse_proj_json:0.042009900000000044
+parse_webpage:0.5247140999999997
+list_to_data_table:0.40718260000000006
+-------NEW RUN STARTING-------
+parse_proj_json:0.007140300000000099
+parse_webpage:0.5292677000000001
+list_to_data_table:0.2575541000000001
+parse_proj_json:0.008436799999998357
+parse_webpage:0.422343699999999
+list_to_data_table:0.25505889999999454
+parse_proj_json:0.007579899999996087
+parse_webpage:0.4527242000000058
+list_to_data_table:0.3056043999999929
+-------NEW RUN STARTING-------
+parse_proj_json:0.007648600000000005
+parse_webpage:0.5458933999999998
+list_to_data_table:0.14080730000000008
+parse_proj_json:0.011866200000000049
+parse_webpage:0.3993111000000056
+list_to_data_table:0.07346239999999682
+parse_proj_json:0.0007839000000018359
+parse_webpage:0.3971340000000083
+list_to_data_table:0.005977999999998929
+parse_proj_json:0.0007793000000049233
+parse_webpage:0.2953458000000069
+list_to_data_table:0.004061200000023746
+parse_proj_json:0.0054939000000047145
+parse_webpage:0.35006799999999316
+list_to_data_table:0.004406499999987545
+-------NEW RUN STARTING-------
+parse_proj_json:0.003824400000000061
+parse_webpage:0.5703795999999999
+list_to_data_table:0.04028009999999993
+parse_proj_json:0.027721100000007937
+parse_webpage:0.41375320000000215
+list_to_data_table:0.020644599999997126
+parse_proj_json:0.0043695999999897595
+parse_webpage:0.35441220000001294
+list_to_data_table:0.019796900000017104
+parse_proj_json:0.0024080000000026303
+parse_webpage:0.3481318999999985
+-------NEW RUN STARTING-------
+parse_proj_json:0.0050816000000004635
+parse_webpage:0.5269671999999996
+-------NEW RUN STARTING-------
+parse_proj_json:0.0053496000000001764
+parse_webpage:0.4448417
+list_to_data_table:0.06144210000000028
+-------NEW RUN STARTING-------
+parse_proj_json:0.005830500000000072
+parse_webpage:0.48684130000000003
+list_to_data_table:0.24820639999999994
+-------NEW RUN STARTING-------
+parse_proj_json:0.00972409999999968
+parse_webpage:0.5094985000000003
+list_to_data_table:0.06795969999999985
+-------NEW RUN STARTING-------
+parse_proj_json:0.0074209000000000636
+parse_webpage:0.5898713999999998
+-------NEW RUN STARTING-------
+parse_proj_json:0.0062397999999999065
+parse_webpage:0.5764741999999998
+list_to_data_table:0.21797220000000017
+parse_proj_json:0.006225200000002928
+parse_webpage:0.5125162000000074
+list_to_data_table:0.022932699999998363
+parse_proj_json:0.008669799999978522
+parse_webpage:0.42523610000000645
+list_to_data_table:0.07215249999998719
+parse_proj_json:0.008020200000004252
+parse_webpage:0.3459980000000087
+list_to_data_table:0.04781210000001579
+parse_proj_json:0.006883099999981823
+parse_webpage:0.519237099999998
+list_to_data_table:0.04224229999999807
+parse_proj_json:0.015946199999973487
+parse_webpage:0.31527379999999994
+list_to_data_table:0.032560700000033194
+-------NEW RUN STARTING-------
+parse_proj_json:0.009039099999999856
+parse_webpage:0.5522138999999999
+list_to_data_table:0.04369269999999981
+-------NEW RUN STARTING-------
+parse_proj_json:0.0067157999999998275
+parse_webpage:0.45333239999999986
+list_to_data_table:0.07590949999999985
+parse_proj_json:0.008466600000005542
+parse_webpage:0.49058149999999046
+list_to_data_table:0.05976460000000827
+parse_proj_json:0.0111259999999902
+parse_webpage:0.362002700000005
+list_to_data_table:0.02794419999997899
+parse_proj_json:0.01071690000000558
+parse_webpage:0.4311620000000005
+list_to_data_table:0.054208499999987225
+parse_proj_json:0.00987639999999601
+parse_webpage:0.446780700000005
+list_to_data_table:0.03792870000000903
