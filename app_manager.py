@@ -1,6 +1,5 @@
 import os
 import web_scraper
-import my_parser
 import new_parser
 from prizepicks_db import send_to_sql
 import my_logs

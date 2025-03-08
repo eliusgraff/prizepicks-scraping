@@ -66,7 +66,7 @@ def parse_webpage(webpage):
     '''---Get the json data from the raw html---'''
         
     json_data = discard_html(webpage)
-    parsed_tags = ["projection", "duration", "league", "league_data", "lfg_ignored_leagues", "new_player", "projection_type", "stat_average","stat_type", "team"]
+    parsed_tags = ["dev_projection", "duration", "league", "league_data", "lfg_ignored_leagues", "new_player", "projection_type", "stat_average","stat_type", "team"]
     col_orders = get_cols(parsed_tags)
 
     '''for col, vals in col_orders.items():
@@ -74,7 +74,7 @@ def parse_webpage(webpage):
         for val in vals:
             print(f"\t{val}")
     input("Check to make sure that column names are same as what is parsed from prizepicks API")'''
-    proj_order = col_orders['projection']
+    proj_order = col_orders['dev_projection']
     '''---Define large data structure where all the parsed data will reside until it is sent to mySQL---'''
     data_values = parse_proj_json(json_data, proj_order)
     
@@ -90,7 +90,7 @@ def parse_webpage(webpage):
             print(f"{val}", end = "\t")
         print()'''
     
-    return parsed_data(col_orders['projection'], data_values, None, None)    
+    return parsed_data(col_orders['dev_projection'], data_values, None, None)    
     #Will need to add support for the 'included' fields later once I have the updated design for projections
     included_tag_orders = {k: v for k, v in col_orders.items() if k != 'projection'}
 
@@ -135,9 +135,16 @@ def parse_proj_data(data_item, col_order):
     relationship_dicts = ["league", "new_player", "duration", "game"]
     relationship_data = ["score"]
     for sub_dict in relationship_dicts:
-        my_dict[sub_dict] = data_item['relationships'][sub_dict]['data'].get('id')
+        if data_item['relationships'].get(sub_dict):
+            my_dict[sub_dict] = data_item['relationships'][sub_dict]['data'].get('id')
+        else:
+            my_dict[sub_dict] = None
+
     for sub_dict in relationship_data:
-        my_dict[sub_dict] = data_item['relationships'][sub_dict].get('data')
+        if data_item['relationships'].get(sub_dict):
+            my_dict[sub_dict] = data_item['relationships'][sub_dict].get('data')
+        else:
+            my_dict[sub_dict] = None
 
     '''
     These are 2 exceptions where the naming is not the same between prizepicks api and my db since thes'stat_type' and 'projection_type' 

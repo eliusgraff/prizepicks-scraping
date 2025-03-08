@@ -42,7 +42,7 @@ def new_get_prizepicks(league):
     single_stat = "true"
     game_mode = "pickem"
     api_call =  f"https://api.prizepicks.com/projections?league_id={league_num}&per_page={page_num}&single_stat={single_stat}&game_mode={game_mode}"
-    print(f"Scrpaing from endpoint: {api_call}")
+    print(f"Scraping from endpoint: {api_call}")
     webpage = uc.loop().run_until_complete(scrape(api_call))
     return webpage
 
