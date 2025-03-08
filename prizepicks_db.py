@@ -28,6 +28,12 @@ SQL_RESERVED_WORDS = {
     "status"
 }
 
+PROJECTION_TIME_SERIES = {
+    "line_score",
+    "trending_count"
+}
+
+
 def remove_mysql_prefix(name_list):
     '''
     Shitty code that I should just do with list comprehension, but this is easier to read for now
@@ -377,6 +383,7 @@ def send_to_sql(parsed_data_obj):
     cursor = conn.cursor()
 
     '''---Send the values for the 'data' table to mySQL---'''
+    #####change this func name to be specific to projection data
     list_to_data_table(parsed_data_obj.data_order, parsed_data_obj.data_values, cursor)
 
     '''---Send all the 'include' values to database---'''
@@ -435,6 +442,10 @@ def list_to_data_table( headers, data, cursor):
     insert_list = list()
     change_list = list()
     update_list = list()
+    timeseries_values = dict()
+    for key in PROJECTION_TIME_SERIES:
+        timeseries_values[key] = list()
+
     table = 'dev_projection'
     table_history = f'{table}_change_history'
     #Can this be done with list comprehension?
@@ -498,6 +509,7 @@ def list_to_data_table( headers, data, cursor):
         Looping through each of the incoming rows of parsed data to check if they need to be inserted into the db or if existing rows need to be updated
         '''
         row_id = incoming_row[id_index]
+        #maybe this can be optimized to be done in line with the other loop
         for i in my_dts.values():
             if isinstance(incoming_row[i], str):
                 my_dt = datetime.fromisoformat(incoming_row[i])
@@ -513,7 +525,7 @@ def list_to_data_table( headers, data, cursor):
         if data_dict.get(row_id) is None:
             '''---If there is nothing already in the DB matching the data id, insert the values straight into the DB---'''
             insert_list.append(incoming_row)
-        
+            
         #If the projection is already in the DB, then check to see if anything has changed. If something is changed then it needs to be logged in the 'projection_change_history' table
         else:
             existing_row = data_dict[row_id]
@@ -527,7 +539,13 @@ def list_to_data_table( headers, data, cursor):
                     latest_row[i] = val
             if changed:
                 update_list.append(latest_row)
+
+        for timeseries in timeseries_values:
+            ts_index = fix_headers.index(timeseries)
+            if  ts_index != -1:
+                timeseries_values[timeseries].append([row_id, incoming_row[ts_index], current_time])
     
+    exit("PICK BACK UP HERE, NEED TO WRITE CODE TO MAKE SURE THE TS DATA GETS INTOT EH DB")
     add_new_lines(insert_list, change_list, update_list, table, table_history, cursor)
             
 def add_new_lines(my_data_list, data_history_list, update_list, table_name, table_history_name, cursor):
