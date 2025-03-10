@@ -18,12 +18,13 @@ def save_wp_data(wp, fn):
 
     print(f"Wrote WP to: {fn}")
 
-def get_wp_example():
+def get_wp_example(fn = None):
     '''
     Function to load in example file for development use or request a new one from the prizepicks API.
     '''
 
-    fn = "test files\\NBAtest.txt"
+    if fn is None:
+        fn = "test files\\NBAtest.txt"
 
     '''
     This line checks to see if there is an existing file that matches fn. If not, then the code will create and fill in a file with
@@ -46,23 +47,13 @@ def validate():
     Takes no arguemtns so that test design is not limited by passed-in vars and returns true when everything passes!!!
     '''
     my_logs.create_loggers()
+
     for iter in range(60):
         print(f"-------API call #{iter} at time {datetime.datetime.now()}--------")
         wp_data = new_parser.parse_webpage(web_scraper.new_get_prizepicks("NBA"))
         print(f"SQL status: {send_to_sql(wp_data)}")
         print(f"...Sleeping...\n")
         time.sleep(60)
-
-def get_game_status():
-    example_ids = [
-        'NFL_game_C7mkbeOdkX5xpB3iEfbRBFPh', 
-        '5c0c9ff0-3d99-4844-bc73-03f1719be4f8', 
-        'NFL_game_BAHT0NZDKRH7a4FVdNcKE80Q', 
-        'NFL_game_by0OpBnpzFHQEqj4EYN9yLjl'
-        ]
-    for id in example_ids:
-        temp = web_scraper.game_status(id)
-        my_parser.parse_game(temp)
 
 if __name__ == "__main__":
     '''
