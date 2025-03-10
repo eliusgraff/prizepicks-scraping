@@ -1,6 +1,6 @@
 import os
 import web_scraper
-import new_parser
+import my_parser
 from prizepicks_db import send_to_sql
 import my_logs
 import datetime
@@ -50,7 +50,7 @@ def validate():
 
     for iter in range(60):
         print(f"-------API call #{iter} at time {datetime.datetime.now()}--------")
-        wp_data = new_parser.parse_webpage(web_scraper.new_get_prizepicks("NBA"))
+        wp_data = parser.parse_webpage(web_scraper.new_get_prizepicks("NBA"))
         print(f"SQL status: {send_to_sql(wp_data)}")
         print(f"...Sleeping...\n")
         time.sleep(60)
@@ -67,5 +67,5 @@ if __name__ == "__main__":
         print(f"Something went wrong with errorcode: {scrape_status}")
         exit()
     
-    wp_data = new_parser.parse_webpage(scrape_status)
+    wp_data = parser.parse_webpage(scrape_status)
     sql_status = send_to_sql(wp_data)

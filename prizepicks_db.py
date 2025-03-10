@@ -34,7 +34,6 @@ PROJECTION_TIME_SERIES = {
     "trending_count"
 }
 
-
 def remove_mysql_prefix(name_list):
     '''
     Shitty code that I should just do with list comprehension, but this is easier to read for now
@@ -439,7 +438,7 @@ def list_to_data_table( headers, data, cursor):
     change_list = list()
     update_list = list()
     timeseries_list = list()
-    table = 'dev_projection'
+    table = 'projection'
 
     #Some column names from prizepicks are reserved words in mySQL so that must be changed. For this, simply add a 'my_' to the beginning of the column name
     #Since there are some values which are expected to change a lot, those are stored differently in a timeseries table. These values need to be ignored when checking for changes

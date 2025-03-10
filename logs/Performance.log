@@ -499,3 +499,17 @@ list_to_data_table:0.07806219999997666
 parse_proj_json:0.0121859000000768
 parse_webpage:0.39652250000017375
 list_to_data_table:0.08006030000001374
+parse_proj_json:0.017970999999988635
+parse_webpage:0.5418162999999367
+list_to_data_table:0.08120209999992767
+-------NEW RUN STARTING-------
+parse_proj_json:0.012911600000052204
+parse_webpage:0.5792953000000125
+list_to_data_table:0.16337589999989177
+parse_proj_json:0.012439200000000206
+parse_webpage:0.6451249999999993
+list_to_data_table:0.08709310000000059
+-------NEW RUN STARTING-------
+parse_proj_json:0.021420299999999948
+parse_webpage:0.5731185000000001
+list_to_data_table:0.1300661999999999
