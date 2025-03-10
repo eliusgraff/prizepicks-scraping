@@ -25,7 +25,13 @@ SQL_RESERVED_WORDS = {
     "type",
     "description",
     "rank",
-    "status"
+    "status",
+    "time"
+}
+
+PROJECTION_TIME_SERIES = {
+    "line_score",
+    "trending_count"
 }
 
 def remove_mysql_prefix(name_list):
@@ -53,6 +59,8 @@ def get_cols(table_names):
             cols = cursor.fetchall()
             #Should add logic here to do the sql conversion to remove 'my_' from the column names
             cols_dict[table] = [each[0] for each in cols]
+            if table.find("projection") > -1:
+                cols_dict[table] = cols_dict[table] + list(PROJECTION_TIME_SERIES)
         #very poor way to go through and make sure that all the mysql reserved word column names are obvuscated from rest of program by removeing the 'my_' from the beginning of some col names
         for table in cols_dict:
             cols_dict[table] = remove_mysql_prefix(cols_dict[table])
@@ -377,6 +385,7 @@ def send_to_sql(parsed_data_obj):
     cursor = conn.cursor()
 
     '''---Send the values for the 'data' table to mySQL---'''
+    #####change this func name to be specific to projection data
     list_to_data_table(parsed_data_obj.data_order, parsed_data_obj.data_values, cursor)
 
     '''---Send all the 'include' values to database---'''
@@ -425,58 +434,64 @@ def list_to_data_table( headers, data, cursor):
     '''
 
     '''---Some fields I expect to be datetimes, so if they are given, parse them as datetime---'''
-    my_dts={
-        "board_time": headers.index("board_time"),
-        "end_time": headers.index("end_time"),
-        "start_time": headers.index("start_time"),
-        "updated_at": headers.index("updated_at")
-    }
-
     insert_list = list()
     change_list = list()
     update_list = list()
-    table = 'dev_projection'
-    table_history = f'{table}_change_history'
-    #Can this be done with list comprehension?
-    fix_headers = []
-    for header in headers:
-        if header in SQL_RESERVED_WORDS: fix_headers.append(f"my_{header}")
-        else: fix_headers.append(header)
-    id_index = headers.index("id")
+    timeseries_list = list()
+    table = 'projection'
 
-    '''---Make sure columns are aligned with DB---'''
+    #Some column names from prizepicks are reserved words in mySQL so that must be changed. For this, simply add a 'my_' to the beginning of the column name
+    #Since there are some values which are expected to change a lot, those are stored differently in a timeseries table. These values need to be ignored when checking for changes
+    #in the main table so the columns of those timeseries are removed from the fix_headers list and handled by themselves rather than with all the other values which are not
+    #expected to change often
+    #Can this be done with list comprehension?
+
+    #convert incoming headers into names that would be saved in mySQL dab
+    mysql_headers = list()
+    mysql_row_len = int()
+    #print(f"OG Headers:\n{headers}")
+    for header in headers:
+        if header in SQL_RESERVED_WORDS: 
+            mysql_headers.append(f"my_{header}")
+        elif header in PROJECTION_TIME_SERIES:
+            continue
+        else: mysql_headers.append(header)
+    #print(f"Incoming headers for mySQL:\n{mysql_headers}")
+    id_index = headers.index("id")
+    mysql_row_len = len(mysql_headers)
+
+    #Get the order for headers from mySQL db
+    mysql_colnames = list()
     cols_query = f"SHOW COLUMNS FROM {table};"
     cursor.execute(cols_query)
     cols_list = cursor.fetchall()
-    try:
-        assert len(fix_headers) == len(cols_list)   
-        for i, v in enumerate(cols_list):
-            assert v[0] == fix_headers[i]
-    except AssertionError as AE:
-        print(f"Item comparison:\n{v[0]}\n{fix_headers[i]}")
-        print(f"Fix headers:\n{fix_headers}")
-        print(f"Col list:\n{cols_list}")
-        raise AE
+    mysql_colnames = [each[0] for each in cols_list]
+    #print(f"Columns in {table}:\n{mysql_colnames}")
 
-    '''---Pull in all existing rows from the db into a dict for quick recall---'''
+
+    #Some cols are saved as datetimes. Keeping track of this is important when checking for equality
+    my_dts = dict()
+    for i, v in enumerate(cols_list):
+        if v[1] == "datetime":
+            my_dts[v[0]] = i
+
+    #Pull in all existing rows from the db into memory so they can be quickly compared to the incoming data
+    existing_data = list()
     id_list = tuple(values[id_index] for values in data)
     my_len = len(id_list)
     if my_len == 0:
         print(f"No data to add for {table}. Returning...")
         return
-    
     elif len(id_list) == 1:
-
         id_list = f"({id_list[0]})"
-
     my_query = f"SELECT * FROM {table} WHERE ID IN {id_list};"
     existing_data = read_query(cursor, my_query)
+    
+    #Create dictionary where the key is the row id and the value is the row of existing dat in the mysql db. This will be used to quickly 
+    #check for equality of the existing rows vs the incoming ones
     data_dict = dict()
-
-    #With new database design, I should be able to use the projection id as the primary key for the table and remove this block of code!
-    '''---Making sure that the data in the db already does not have double-up of same ids---'''
     for row in existing_data:
-
+        #With new database design, I should be able to use the projection id as the primary key for the table and remove this block of code!
         if row[id_index] in existing_data:
             '''
             Since there should only be one row with a target id that is also the latest, this check to make sure that is enforced. Since this should not be possible
@@ -486,51 +501,93 @@ def list_to_data_table( headers, data, cursor):
             print(f"Two instances of same id:\nExisting:\n{existing_data}\nIncoming:\n{row}")
             print("This is unexpected and should not be possible, plz fix")
             assert row[id_index] not in existing_data
-
+        ###End of block I should consider deleting###
         data_dict[row[id_index]] = row
-    ###End of block I should consider deleting###
 
-    #This can eventually become a request id and then all the info about a specificc request can be saved. For now we will just save it based on time
+    #The DB will keep track of what time these are added and changed, so this time will be used for that.
+    #NOTE: It is importatnt that all times are standardized to UTC first and then have timezone info removed. Since mySQL has issues storing all that info,
+    #it must be converted this way so that any equalitites of datetimes are valid.
+    #   Eventually I'd like to replace this altogether and just use an API request number for it, but that is unnecessary right now
     current_time = datetime.now(timezone.utc).replace(tzinfo=None)
 
+    #Create a list to map the incoming cols to the mysql cols. Since not all parsed data is stored and not all of the existing cols may be used for a data entry then
+    #this helps accomodate for either of those cases. This will need close integreation with the parser fucntions, but in general going forward, this should be a good
+    #general solution.
+    new_row_mapping = list()
+    for each in mysql_colnames:
+        if each in mysql_headers:
+            new_row_mapping.append(mysql_headers.index(each))
+        else:
+            new_row_mapping.append(None)
+    #print(new_row_mapping)
+
+    #This loops through each of the incoming data rows to determine what changes need to be made in the db. Any changes that need to be made, the necessary 
+    #data to do that is added to the insert, update, or timeseries list as apropriate. These lists are then executed in batches into the db to make it fast
     for incoming_row in data:
-        '''
-        Looping through each of the incoming rows of parsed data to check if they need to be inserted into the db or if existing rows need to be updated
-        '''
+
+        #print(f"Incoming row:\n{incoming_row}")
+        #------Setting up data structures to make sure that all types and orders are correct------
+
+        #Map the data from the incoming row into a temp row so that it can be compared against whatever is already in the db in the correct order/format
+        temp_row = list()
         row_id = incoming_row[id_index]
+        #Maybe this can be optimized to be done in line with the other loop?
         for i in my_dts.values():
             if isinstance(incoming_row[i], str):
                 my_dt = datetime.fromisoformat(incoming_row[i])
                 utc_dt = my_dt.astimezone(timezone.utc)
                 incoming_row[i] = utc_dt.replace(tzinfo=None)
-        '''
-        Go through each row of data passed into the function and check to see if there already existing entry in the db for it. 
-            If there is no existing entry, then add it right in. 
-            Elif there exists entry for incoming id already, check if any values have changed
-                if important values have changed - add new row to the db and set old one to not being latest and update version number of the new one
-        '''
-        #If projection is not already in the DB, then just add that row and go on to the next one!
-        if data_dict.get(row_id) is None:
+        #Could be list comprehension?
+        for i in new_row_mapping:
+            if i is not None:
+                temp_row.append(incoming_row[i])
+            else:
+                temp_row.append(None)
+
+        #print(f"Temp row:\n{temp_row}")
+        #------Beginning comparison and adding necessary data to correct lists to make updates------
+
+        #If projection is not already in the DB, then add it
+        existing_row = data_dict.get(row_id)
+        if existing_row is None:
             '''---If there is nothing already in the DB matching the data id, insert the values straight into the DB---'''
-            insert_list.append(incoming_row)
-        
-        #If the projection is already in the DB, then check to see if anything has changed. If something is changed then it needs to be logged in the 'projection_change_history' table
-        else:
-            existing_row = data_dict[row_id]
-            changed = False
-            latest_row = list(existing_row)
-            for i, val in enumerate(incoming_row):
-                if existing_row[i] != val:
-                    print(f"Existing val {existing_row[i]} != {val} from incoming. Column: {fix_headers[i]}")
-                    changed = True
-                    change_list.append([row_id, fix_headers[i], existing_row[i], current_time])
-                    latest_row[i] = val
-            if changed:
-                update_list.append(latest_row)
-    
-    add_new_lines(insert_list, change_list, update_list, table, table_history, cursor)
+            insert_list.append(temp_row)
             
-def add_new_lines(my_data_list, data_history_list, update_list, table_name, table_history_name, cursor):
+        #If the projection is already in the DB, then check to see if anything has changed. If a value has changed, then log it in the 
+        #'projection_change_history' table
+        else:
+            #print(f"Existing row:\n{existing_row}")
+            #Flag to make sure I'm only updating the base db table if there is something changed
+            changed = False
+            #Go through each index of incoming version of the row and compare to the existing one
+            for i in range(mysql_row_len):
+                #If a value has changed, then add it to the change list and mark that a change has been made. This change will be logged in the appropriate change_history table
+                if existing_row[i] != temp_row[i]:
+                    print(f"Existing val {existing_row[i]} != {temp_row[i]} from incoming. Column: {mysql_headers[i]}")
+                    changed = True
+                    change_list.append([row_id, mysql_headers[i], existing_row[i], current_time])
+            #If a change is made then the latest version of the row must be updated to reflect that change in the base db table
+            if changed:
+                update_list.append(temp_row)
+
+        #If the incomming row has timeseries data, then this adds it as long as the timeseries value is not null. This must look at the original 
+        #'headers' list since the timeseries headers are removed from 'mysql_headers'. These values are handled differently from columns with values that
+        #are not expected to change very often
+        for timeseries in PROJECTION_TIME_SERIES:
+            #Not all timeseries data is always guarunteed, so this check to make sure that the timeseries data actually exists before trying to add anything. 
+            #If it does not exist then just skip it, that's ok.
+            try:
+                ts_index = headers.index(timeseries)
+            except ValueError:
+                input(f"Cant find {timeseries} in headers list. Is that ok?")
+                continue
+            if  incoming_row[ts_index] is not None:
+                timeseries_list.append([row_id, timeseries, incoming_row[ts_index], current_time])
+    
+    #Function which makes batch requests for the 3 tables to be updated
+    add_new_lines(insert_list, change_list, update_list, table, timeseries_list, cursor)
+            
+def add_new_lines(my_data_list, data_history_list, update_list, table_name, timeseries_list, cursor):
     
     #Can I turn this into some kind of string comprehension?
     if len(my_data_list) > 0:
@@ -543,7 +600,7 @@ def add_new_lines(my_data_list, data_history_list, update_list, table_name, tabl
         history_alias_list = str()
         for _ in range(len(data_history_list[0])):
             history_alias_list += "%s,"
-        history_write_query = f"INSERT INTO {table_history_name} VALUES({history_alias_list[:-1]});"
+        history_write_query = f"INSERT INTO {table_name}_change_history VALUES({history_alias_list[:-1]});"
 
     if len(update_list) > 0:
         replace_alias_string = str()
@@ -551,13 +608,20 @@ def add_new_lines(my_data_list, data_history_list, update_list, table_name, tabl
             replace_alias_string += "%s,"
         replace_query = f"REPLACE INTO {table_name} VALUES ({replace_alias_string[:-1]});"
 
+    if len(timeseries_list) > 0:
+        ts_alias_string = str()
+        for _ in range(len(timeseries_list[0])):
+            ts_alias_string += "%s,"
+        ts_write_query = f"INSERT INTO {table_name}_timeseries VALUES ({ts_alias_string[:-1]});"
+
+    #these below statements can probably be turned into their own function or done inline above (or both)
     if len(my_data_list) > 0:
         try:
             cursor.executemany(my_data_write_query, my_data_list)
             print(f"Added {len(my_data_list)} rows to {table_name}")
         except mysql.connector.Error as sql_err:
             print(f"ERROR MESSAGE: {sql_err.msg}")
-            print(history_write_query)
+            print(my_data_write_query)
             for row in data_history_list:
                 print(row)
             
@@ -574,12 +638,24 @@ def add_new_lines(my_data_list, data_history_list, update_list, table_name, tabl
     if len(data_history_list) > 0:
         try:
             cursor.executemany(history_write_query, data_history_list)
-            print(f"Added {len(data_history_list)} rows to {table_history_name}")
+            print(f"Added {len(data_history_list)} rows to {table_name}_change_history")
         except mysql.connector.Error as sql_err:
             print(f"ERROR MESSAGE: {sql_err.msg}")
             print(history_write_query)
             for row in data_history_list:
                 print(row)
+
+    if len(timeseries_list) > 0:
+        try:
+            cursor.executemany(ts_write_query, timeseries_list)
+            print(f"Added {len(timeseries_list)} rows to {table_name}_timeseries")
+        except mysql.connector.Error as sql_err:
+            print(f"ERROR MESSAGE: {sql_err.msg}")
+            print(ts_write_query)
+            for row in timeseries_list:
+                print(row)
+
+    return True
 
 def sqlerr_1256_recovery(rows_list, table_name, cursor):
     print(f"Error 1265 ocurred during mysql insert of {table_name} values. Attempting to Recover...")
