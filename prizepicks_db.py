@@ -34,6 +34,11 @@ PROJECTION_TIME_SERIES = {
     "trending_count"
 }
 
+ENDPOINT_ID = {
+    'projection':1,
+    'game':2
+}
+
 def remove_mysql_prefix(name_list):
     '''
     Shitty code that I should just do with list comprehension, but this is easier to read for now
@@ -836,3 +841,25 @@ def update_typecols(table_name):
     conn.commit()
     conn.close()
     return True
+
+def ts_to_scrape_data(table_name, ts_col):
+
+    conn = create_db_connection()
+    cursor = conn.cursor()
+    get_ts_query = f"SELECT DISTINCT {ts_col} FROM {table_name}"
+    my_times = read_query(cursor, get_ts_query)
+    for time in my_times:
+        insert_query = f"INSERT INTO dev_scrape_data VALUES (0,1,7,%s);"
+        cursor.execute(insert_query,time)
+    conn.commit()
+    conn.close()
+
+def create_example_scrape():
+    
+    ts_to_scrape_data('projection_change_history', 'my_time')
+
+    '''conn = create_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO scrape_data VALUES(DEFAULT,1,2,DEFAULT)")
+    conn.commit()
+    conn.close()'''

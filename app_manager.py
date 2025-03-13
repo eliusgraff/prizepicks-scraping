@@ -1,7 +1,7 @@
 import os
 import web_scraper
 import my_parser
-from prizepicks_db import send_to_sql, update_typecols
+from prizepicks_db import send_to_sql, create_example_scrape
 import my_logs
 import datetime
 import time
@@ -60,7 +60,7 @@ if __name__ == "__main__":
     Eventually, this will be the code that is the manager for the scraper that keep running all the time
     '''
    
-    hour_run()
+    create_example_scrape()
     exit("All done with validation")
     my_logs.create_loggers()
     scrape_status = web_scraper.new_get_prizepicks("NBA")
