@@ -53,31 +53,28 @@ def get_cols(table_names):
     conn = create_db_connection()
     cursor = conn.cursor()
     cols_dict = dict()
+    to_return = None
     if isinstance(table_names, list):
         for table in table_names:
-            cursor.execute(f"SHOW COLUMNS FROM {table};")
+            cursor.execute(f"SELECT col_name FROM type_cols WHERE type_name = '{table}';")
             cols = cursor.fetchall()
-            #Should add logic here to do the sql conversion to remove 'my_' from the column names
             cols_dict[table] = [each[0] for each in cols]
-            if table.find("projection") > -1:
-                cols_dict[table] = cols_dict[table] + list(PROJECTION_TIME_SERIES)
         #very poor way to go through and make sure that all the mysql reserved word column names are obvuscated from rest of program by removeing the 'my_' from the beginning of some col names
         for table in cols_dict:
             cols_dict[table] = remove_mysql_prefix(cols_dict[table])
+        to_return = cols_dict
 
     elif isinstance(table_names, str):
-        cursor.execute(f"SHOW COLUMNS FROM {table_names};")
+        cursor.execute(f"SELECT col_name FROM type_cols WHERE type_name = '{table}';")
         cols = cursor.fetchall()
-        cols_dict[table_names] = [each[0] for each in cols]
         #very poor way to go through and make sure that all the mysql reserved word column names are obvuscated from rest of program by removeing the 'my_' from the beginning of some col names
-        cols_dict[table_names] = remove_mysql_prefix(cols_dict[table_names])
+        to_return = remove_mysql_prefix([each[0] for each in cols])
 
     else:
         raise TypeError(f"table_names must be a list or a str. Got type: {type(table_names)}")
     
     conn.close()
-
-    return cols_dict
+    return to_return
 
 def is_equal(newval, oldval):
     '''
@@ -160,7 +157,6 @@ def create_db_connection(db_name="prizepicks", host_name= None, user_name = None
 def write_to_mysql(data, table_name, cursor):
     
     if len(data) == 0:
-
         return
     
     insert_query = f"INSERT INTO {table_name} VALUES ({', '.join(['%s']*len(data[0]) )});"
@@ -401,13 +397,11 @@ def send_to_sql(parsed_data_obj):
 def read_query(cursor, query):
     
     try:
-
         cursor.execute(query)
         result = cursor.fetchall()
         return result
     
     except Exception as E:
-
         print(f"Attempting query: {query}\nBut error occured")
         raise E
 
@@ -491,17 +485,6 @@ def list_to_data_table( headers, data, cursor):
     #check for equality of the existing rows vs the incoming ones
     data_dict = dict()
     for row in existing_data:
-        #With new database design, I should be able to use the projection id as the primary key for the table and remove this block of code!
-        if row[id_index] in existing_data:
-            '''
-            Since there should only be one row with a target id that is also the latest, this check to make sure that is enforced. Since this should not be possible
-            I don't want to spend a lot of time on this, but in the case it does pop up, then this will catch is and whatever is causing it should be patched but if
-            nothing else this conflict should be handled logically
-            '''
-            print(f"Two instances of same id:\nExisting:\n{existing_data}\nIncoming:\n{row}")
-            print("This is unexpected and should not be possible, plz fix")
-            assert row[id_index] not in existing_data
-        ###End of block I should consider deleting###
         data_dict[row[id_index]] = row
 
     #The DB will keep track of what time these are added and changed, so this time will be used for that.
@@ -824,3 +807,32 @@ def includes_to_db(parsed_data_obj, cursor):
     '''
     for name, cols in parsed_data_obj.included_tag_orders.items():
         list_to_db(name, cols, parsed_data_obj.included_tag_values[name], cursor)
+
+def update_typecols(table_name):
+
+    #Function to help automate picking up the latest columns which the parser will need to look for for a given table of data. This will return not just the
+    #columns which are expected to stay more-or-less the same, but also pick up the names of the timeseries data that a given data type may have.
+    
+    #create connection to db
+    conn = create_db_connection()
+    cursor = conn.cursor()
+
+    #get existing column names and names of timeseries from mysql
+    colnames = get_cols(table_name)
+    ts_query = f"SELECT DISTINCT name FROM {table_name}_timeseries;"
+    ts_names = read_query(cursor, ts_query)
+    
+    #Clear out any existing data in the table to avoid doubling up of values
+    existing_query = f"DELETE FROM type_cols WHERE type_name = '{table_name}';"
+    execute_query(cursor, existing_query)
+
+    #Create list of the new data to store in the table
+    full_list = colnames + remove_mysql_prefix([series_name[0] for series_name in ts_names])
+    data_list = [(table_name, name) for name in full_list]
+
+    #Execute writing the latest data into the table
+    write_query = f"INSERT INTO type_cols VALUES (%s,%s);"
+    cursor.executemany(write_query, data_list)
+    conn.commit()
+    conn.close()
+    return True
