@@ -60,7 +60,7 @@ if __name__ == "__main__":
     Eventually, this will be the code that is the manager for the scraper that keep running all the time
     '''
    
-    update_typecols()
+    hour_run()
     exit("All done with validation")
     my_logs.create_loggers()
     scrape_status = web_scraper.new_get_prizepicks("NBA")
