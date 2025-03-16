@@ -863,3 +863,18 @@ def create_example_scrape():
     cursor.execute("INSERT INTO scrape_data VALUES(DEFAULT,1,2,DEFAULT)")
     conn.commit()
     conn.close()'''
+
+def infer_parsenum(scrape_table, target_table, column_name, cursor):
+    read_scrape_data = f'SELECT id,store_time FROM {scrape_table} ORDER BY store_time ASC'
+    read_proj_data = f'SELECT projection_id,my_time FROM {target_table} ORDER BY my_time ASC'
+    
+    scrapes = read_query(read_scrape_data, cursor)
+    existing_times = read_query(read_proj_data, cursor)
+    cur_dt = 0
+    next_dt = 1
+    for row in existing_times:
+        if (row[1] - scrapes[cur_dt][1]).total_seconds() > (row[1] - scrapes[next_dt][1]).total_seconds():
+            cur_dt += 1
+            exit("NEED TO CHECK FOR END OF LIST HERE TOO AND DECIDE HOW TO HANDLE ONCE WE GET TO THE VERY END")
+            next_dt += 1
+
