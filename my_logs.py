@@ -10,7 +10,7 @@ def log_perf(func):
         ret_obj = func(*args, **kwargs)
         t=perf_counter()-s
         perf_log.debug(f"{func.__name__}:{str(t)}")
-        print(f"logged: {func.__name__}:{str(t)}")
+        #print(f"logged: {func.__name__}:{str(t)}")
         return ret_obj
 
     return wrapper

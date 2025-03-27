@@ -1,4 +1,6 @@
 import nodriver as uc
+from datetime import datetime, timezone
+from prizepicks_db import create_scrape_id
 
 async def scrape(api_request):
     '''
@@ -44,7 +46,8 @@ def new_get_prizepicks(league):
     api_call =  f"https://api.prizepicks.com/projections?league_id={league_num}&per_page={page_num}&single_stat={single_stat}&game_mode={game_mode}"
     print(f"Scraping from endpoint: {api_call}")
     webpage = uc.loop().run_until_complete(scrape(api_call))
-    return webpage
+    scrape_id = create_scrape_id(datetime.now(timezone.utc).replace(tzinfo=None), league_num)
+    return (webpage, scrape_id)
 
 def game_status(id):
     '''

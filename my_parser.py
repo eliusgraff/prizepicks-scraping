@@ -159,7 +159,7 @@ def parse_proj_data(data_item, col_order):
 @log_perf
 def parse_proj_json(json_data, order):
     data_values = []
-    print("Parsing 'projection' tags...")
+    #print("Parsing 'projection' tags...")
     for item in json_data['data']:
 
         '''---For each of the tags in the 'data' tag, send them all to the 'data' parser to get the necessary data from the json---'''

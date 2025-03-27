@@ -1,7 +1,7 @@
 import os
 import web_scraper
 import my_parser
-from prizepicks_db import send_to_sql, create_example_scrape
+from prizepicks_db import send_to_sql
 import my_logs
 import datetime
 import time
@@ -50,8 +50,11 @@ def hour_run():
 
     for iter in range(60):
         print(f"-------API call #{iter} at time {datetime.datetime.now()}--------")
-        wp_data = my_parser.parse_webpage(web_scraper.new_get_prizepicks("NBA"))
-        print(f"SQL status: {send_to_sql(wp_data)}")
+        scrape_data = web_scraper.new_get_prizepicks("NBA")
+        webpage = scrape_data[0]
+        scrape_id = scrape_data[1]
+        wp_data = my_parser.parse_webpage(webpage)
+        print(f"SQL status: {send_to_sql(wp_data, scrape_id)}")
         print(f"...Sleeping...\n")
         time.sleep(60)
 
@@ -60,13 +63,4 @@ if __name__ == "__main__":
     Eventually, this will be the code that is the manager for the scraper that keep running all the time
     '''
    
-    create_example_scrape()
-    exit("All done with validation")
-    my_logs.create_loggers()
-    scrape_status = web_scraper.new_get_prizepicks("NBA")
-    if isinstance(scrape_status, int):
-        print(f"Something went wrong with errorcode: {scrape_status}")
-        exit()
-    
-    wp_data = parser.parse_webpage(scrape_status)
-    sql_status = send_to_sql(wp_data)
+    hour_run()

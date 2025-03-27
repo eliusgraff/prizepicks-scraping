@@ -39,6 +39,7 @@ ENDPOINT_ID = {
     'game':2
 }
 
+
 def remove_mysql_prefix(name_list):
     '''
     Shitty code that I should just do with list comprehension, but this is easier to read for now
@@ -375,7 +376,7 @@ def list_to_db(table, headers, data, cursor):
 
         raise E
 
-def send_to_sql(parsed_data_obj):
+def send_to_sql(parsed_data_obj, scrape_id):
     '''
     Function takes in a parsed_data object and is responsible for sending all that information to mySQL database
     '''
@@ -387,7 +388,7 @@ def send_to_sql(parsed_data_obj):
 
     '''---Send the values for the 'data' table to mySQL---'''
     #####change this func name to be specific to projection data
-    list_to_data_table(parsed_data_obj.data_order, parsed_data_obj.data_values, cursor)
+    list_to_data_table(parsed_data_obj.data_order, parsed_data_obj.data_values, scrape_id, cursor)
 
     '''---Send all the 'include' values to database---'''
     if parsed_data_obj.included_tag_orders is not None:
@@ -398,6 +399,17 @@ def send_to_sql(parsed_data_obj):
     conn.commit()
     conn.close()
     return True
+
+def create_scrape_id( timestamp, leaguenum):
+    
+    conn = create_db_connection()
+    cursor = conn.cursor()
+    insert_query = f"INSERT INTO scrape_data (id, my_status, league_num, store_time) VALUES ( NULL, 1,{leaguenum}, '{timestamp}');"
+    cursor.execute(insert_query)
+    conn.commit()
+    scrape_id = read_query(cursor, 'SELECT LAST_INSERT_ID();')[0][0]
+    conn.close()
+    return scrape_id
 
 def read_query(cursor, query):
     
@@ -414,7 +426,7 @@ def execute_query(cursor, query):
     cursor.execute(query)
 
 @log_perf
-def list_to_data_table( headers, data, cursor):
+def list_to_data_table( headers, data, scrape_id, cursor):
     '''
     Function which will send passed in data into the 'data' table of the local mySQL database
     Argumetns are:
@@ -553,7 +565,7 @@ def list_to_data_table( headers, data, cursor):
                 if existing_row[i] != temp_row[i]:
                     print(f"Existing val {existing_row[i]} != {temp_row[i]} from incoming. Column: {mysql_headers[i]}")
                     changed = True
-                    change_list.append([row_id, mysql_headers[i], existing_row[i], current_time])
+                    change_list.append([row_id, mysql_headers[i], existing_row[i], current_time, scrape_id])
             #If a change is made then the latest version of the row must be updated to reflect that change in the base db table
             if changed:
                 update_list.append(temp_row)
@@ -570,7 +582,7 @@ def list_to_data_table( headers, data, cursor):
                 input(f"Cant find {timeseries} in headers list. Is that ok?")
                 continue
             if  incoming_row[ts_index] is not None:
-                timeseries_list.append([row_id, timeseries, incoming_row[ts_index], current_time])
+                timeseries_list.append([row_id, timeseries, incoming_row[ts_index], current_time, scrape_id])
     
     #Function which makes batch requests for the 3 tables to be updated
     add_new_lines(insert_list, change_list, update_list, table, timeseries_list, cursor)
@@ -864,17 +876,35 @@ def create_example_scrape():
     conn.commit()
     conn.close()'''
 
-def infer_parsenum(scrape_table, target_table, column_name, cursor):
+def infer_parsenum(scrape_table, target_table):
+    
+    conn = create_db_connection()
+    cursor = conn.cursor()
+
     read_scrape_data = f'SELECT id,store_time FROM {scrape_table} ORDER BY store_time ASC'
     read_proj_data = f'SELECT projection_id,my_time FROM {target_table} ORDER BY my_time ASC'
     
-    scrapes = read_query(read_scrape_data, cursor)
-    existing_times = read_query(read_proj_data, cursor)
-    cur_dt = 0
-    next_dt = 1
+    scrapes = read_query(cursor, read_scrape_data)
+    existing_times = read_query(cursor, read_proj_data)
+    s = 0
+
+    my_data = dict()
+
     for row in existing_times:
-        if (row[1] - scrapes[cur_dt][1]).total_seconds() > (row[1] - scrapes[next_dt][1]).total_seconds():
-            cur_dt += 1
-            exit("NEED TO CHECK FOR END OF LIST HERE TOO AND DECIDE HOW TO HANDLE ONCE WE GET TO THE VERY END")
-            next_dt += 1
+        t1 = row[1]
+        f = False
+        for i in range(s, len(scrapes)):
+            scrape_time = scrapes[i][1]
+            time_diff = t1-scrape_time
+            #print(f"Read Time:{t1}\tScrape Time{scrape_time}\tDiff: {time_diff}")
+            if abs(time_diff.total_seconds()) < 15:
+                print("GOT IT!")
+                my_data[row[0]] = scrape_time[0]
+                s = i
+                f = True
+                break
+        
+        if f is False:
+            my_data[row[0]] = None
+            print("NOTHING FOUND")
 
