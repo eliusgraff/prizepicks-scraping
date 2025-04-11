@@ -2,6 +2,16 @@ import nodriver as uc
 from datetime import datetime, timezone
 from prizepicks_db import create_scrape_id
 
+KNOWN_LEAGUES = {
+    "NFL":9,
+    "CFB":15,
+    "MLB":2,
+    "WNBA":3,
+    "Soccer":82,
+    "CFB2H": 150,
+    "NBA": 7,
+}
+
 async def scrape(api_request):
     '''
     Function takes in a prizepicks API call as a str and make a request to that endpoint using nodriver
@@ -26,16 +36,8 @@ def new_get_prizepicks(league):
     Once league is validated it makes a call to the prizepicks api to get the latest data for that league.
     Any problems here, it will return 2.
     '''
-    known_leagues = {
-        "NFL":9,
-        "CFB":15,
-        "MLB":2,
-        "WNBA":3,
-        "Soccer":82,
-        "CFB2H": 150,
-        "NBA": 7,
-    }
-    league_num = known_leagues.get(league.upper())
+
+    league_num = KNOWN_LEAGUES.get(league.upper())
     if league_num is None:
         return 1
     
@@ -44,9 +46,10 @@ def new_get_prizepicks(league):
     single_stat = "true"
     game_mode = "pickem"
     api_call =  f"https://api.prizepicks.com/projections?league_id={league_num}&per_page={page_num}&single_stat={single_stat}&game_mode={game_mode}"
+
     print(f"Scraping from endpoint: {api_call}")
     webpage = uc.loop().run_until_complete(scrape(api_call))
-    scrape_id = create_scrape_id(datetime.now(timezone.utc).replace(tzinfo=None), league_num)
+    scrape_id = create_scrape_id(1, league_num, datetime.now(timezone.utc).replace(tzinfo=None))
     return (webpage, scrape_id)
 
 def game_status(id):
@@ -61,4 +64,3 @@ def game_status(id):
     
     #league_ids_api = "https://api.prizepicks.com/leagues?state_code=CA&game_mode=pickem"
     return uc.loop().run_until_complete(scrape(game_api_call))
-    

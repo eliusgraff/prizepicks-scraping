@@ -1,10 +1,11 @@
 import os
 import web_scraper
 import my_parser
-from prizepicks_db import send_to_sql
+from prizepicks_db import send_to_sql, post_scrape_error
 import my_logs
 import datetime
 import time
+import logging
 
 def save_wp_data(wp, fn):
     '''
@@ -17,6 +18,13 @@ def save_wp_data(wp, fn):
         file.write(wp)
 
     print(f"Wrote WP to: {fn}")
+
+def save_wp_snapshot(wp, scrapenum, count):
+    curdir_path = os.path.dirname(__file__)
+    log_path = f"{str(curdir_path)}\\logs\\"
+    fn = f"{log_path}Snapshot_{scrapenum}_{count}.txt"
+    save_wp_data(wp, fn)
+    print(f"Saved snapshot to {fn}")
 
 def get_wp_example(fn = None):
     '''
@@ -47,6 +55,10 @@ def hour_run():
     Takes no arguemtns so that test design is not limited by passed-in vars and returns true when everything passes!!!
     '''
     my_logs.create_loggers()
+    err_log = logging.getLogger("err_log")
+    consec_errors = 0
+    SNAPSHOT = 2
+    ABORT = 5
 
     for iter in range(60):
         print(f"-------API call #{iter} at time {datetime.datetime.now()}--------")
@@ -54,7 +66,22 @@ def hour_run():
         webpage = scrape_data[0]
         scrape_id = scrape_data[1]
         wp_data = my_parser.parse_webpage(webpage)
-        print(f"SQL status: {send_to_sql(wp_data, scrape_id)}")
+        
+        #logging errors posted from parsing fucntion
+        if isinstance(wp_data, int):
+            consec_errors += 1
+            post_scrape_error(scrape_id, wp_data)
+            print(f"!!!FOUND AN ERROR!!!\nErnum: {wp_data} for scrape_id: {scrape_id}")
+            err_log.error(f"Ernum: {wp_data}\tscrape_id: {scrape_id}\tcons_count: {consec_errors}")
+            if consec_errors >= SNAPSHOT:
+                save_wp_snapshot(webpage, scrape_id, consec_errors)
+            if consec_errors >= ABORT:
+                print(f"Consecutive errors exceeded limit of {ABORT}. Aborting run.")
+                exit("Exiting...")
+
+        else:
+            print(f"SQL status: {send_to_sql(wp_data, scrape_id)}")
+            consec_errors = 0
         print(f"...Sleeping...\n")
         time.sleep(60)
 
@@ -62,5 +89,4 @@ if __name__ == "__main__":
     '''
     Eventually, this will be the code that is the manager for the scraper that keep running all the time
     '''
-   
     hour_run()

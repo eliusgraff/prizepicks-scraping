@@ -39,7 +39,6 @@ ENDPOINT_ID = {
     'game':2
 }
 
-
 def remove_mysql_prefix(name_list):
     '''
     Shitty code that I should just do with list comprehension, but this is easier to read for now
@@ -400,15 +399,16 @@ def send_to_sql(parsed_data_obj, scrape_id):
     conn.close()
     return True
 
-def create_scrape_id( timestamp, leaguenum):
+def create_scrape_id( status, leaguenum, timestamp):
     
-    conn = create_db_connection()
-    cursor = conn.cursor()
-    insert_query = f"INSERT INTO scrape_data (id, my_status, league_num, store_time) VALUES ( NULL, 1,{leaguenum}, '{timestamp}');"
-    cursor.execute(insert_query)
-    conn.commit()
-    scrape_id = read_query(cursor, 'SELECT LAST_INSERT_ID();')[0][0]
-    conn.close()
+    PRIZEPICKS_CONN = create_db_connection()
+    PRIZEPICKS_CURSOR = PRIZEPICKS_CONN.cursor()
+    
+    insert_query = f"INSERT INTO scrape_data (id, my_status, league_num, store_time) VALUES ( NULL, {status},{leaguenum}, '{timestamp}');"
+    PRIZEPICKS_CURSOR.execute(insert_query)
+    PRIZEPICKS_CONN.commit()
+    scrape_id = read_query(PRIZEPICKS_CURSOR, 'SELECT LAST_INSERT_ID();')[0][0]
+    PRIZEPICKS_CONN.close()
     return scrape_id
 
 def read_query(cursor, query):
@@ -854,57 +854,10 @@ def update_typecols(table_name):
     conn.close()
     return True
 
-def ts_to_scrape_data(table_name, ts_col):
-
+def post_scrape_error(scrape_id, error):
+    update_existing = f"UPDATE scrape_data SET my_status = {error} WHERE id = {scrape_id};"
     conn = create_db_connection()
     cursor = conn.cursor()
-    get_ts_query = f"SELECT DISTINCT {ts_col} FROM {table_name}"
-    my_times = read_query(cursor, get_ts_query)
-    for time in my_times:
-        insert_query = f"INSERT INTO dev_scrape_data VALUES (0,1,7,%s);"
-        cursor.execute(insert_query,time)
+    cursor.execute(update_existing)
     conn.commit()
     conn.close()
-
-def create_example_scrape():
-    
-    ts_to_scrape_data('projection_change_history', 'my_time')
-
-    '''conn = create_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO scrape_data VALUES(DEFAULT,1,2,DEFAULT)")
-    conn.commit()
-    conn.close()'''
-
-def infer_parsenum(scrape_table, target_table):
-    
-    conn = create_db_connection()
-    cursor = conn.cursor()
-
-    read_scrape_data = f'SELECT id,store_time FROM {scrape_table} ORDER BY store_time ASC'
-    read_proj_data = f'SELECT projection_id,my_time FROM {target_table} ORDER BY my_time ASC'
-    
-    scrapes = read_query(cursor, read_scrape_data)
-    existing_times = read_query(cursor, read_proj_data)
-    s = 0
-
-    my_data = dict()
-
-    for row in existing_times:
-        t1 = row[1]
-        f = False
-        for i in range(s, len(scrapes)):
-            scrape_time = scrapes[i][1]
-            time_diff = t1-scrape_time
-            #print(f"Read Time:{t1}\tScrape Time{scrape_time}\tDiff: {time_diff}")
-            if abs(time_diff.total_seconds()) < 15:
-                print("GOT IT!")
-                my_data[row[0]] = scrape_time[0]
-                s = i
-                f = True
-                break
-        
-        if f is False:
-            my_data[row[0]] = None
-            print("NOTHING FOUND")
-
