@@ -1,5 +1,4 @@
 import mysql.connector
-from mysql.connector import errorcode
 import helper
 from datetime import datetime, timezone
 from parsed_data import parsed_data
@@ -19,6 +18,393 @@ class one_to_many:
         self.target_ids = t_id_set
         self.version = ver
         self.islatest = latest
+
+class prizepicks_db:
+
+    SQL_RESERVED_WORDS = {
+        "type",
+        "description",
+        "rank",
+        "status",
+        "time"
+    }
+    PROJECTION_TIME_SERIES = {
+        "line_score",
+        "trending_count"
+    }
+    ENDPOINT_ID = {
+        'projection':1,
+        'game':2
+    }
+    _sql_conn = None
+    _sql_cursor = None
+
+    def __init__(self):
+        self._sql_conn = self._create_db_connection()
+        self._sql_cursor = self._sql_conn.cursor()
+
+    def _create_db_connection(self, db_name="prizepicks", host_name= None, user_name = None, user_password = None):
+        '''
+        Function to create a connection to the local mySQL database. Credentials can be passed in or they default to None and if host_name is left as None
+        then the root_login() function will get the root login data form a file somewhere on the computer
+        '''
+        if host_name is None:
+            creds = self._root_login()
+            host_name = creds['hn']
+            user_name = creds['un']
+            user_password = creds['pw']
+
+        connection = mysql.connector.connect(
+            host=host_name,
+            user=user_name,
+            passwd=user_password,
+            database=db_name
+        )
+
+        print("MySQL Database connection successful")
+        return connection
+    
+    #Long term, this should not need to be root user
+    def _root_login(self):
+        '''
+        This function is used to retrive the username, host name, and password to gain access to the local
+        mySQL database. requires that the user have a file called 'secrets.txt' where 3 of the lines in it are:
+        mysql_un=username
+        mysql_pw=password
+        mysql_hn=hostname
+        
+        So, to access this, that file must be setup beforehand and then this function will work properly as it
+        is simply reading those 3 items from the file. It muse have *accurate* user info of the 3
+        fields above to get into the SQL DB
+        '''
+        my_dict = helper.get_secret("mysql")
+        '''---Checking to make sure all the necessary parts were read from file---'''
+        not_found_list = []
+        if my_dict.get('un') is None: 
+            not_found_list.append('un')
+
+        if my_dict.get('pw') is None: 
+            not_found_list.append('pw')
+
+        if my_dict.get('hn') is None: 
+            not_found_list.append('hn')
+
+        if len(not_found_list) > 0:
+            print(f"WARNING: Missing values in dict:{not_found_list}")
+            return None
+
+        return my_dict
+
+    def send_to_sql(self, parsed_data_obj, scrape_id):
+        '''
+        Function takes in a parsed_data object and is responsible for sending all that information to mySQL database
+        '''
+        '''---assert that the argument is correct data structure---'''
+        assert isinstance(parsed_data_obj, parsed_data)
+        '''---Creating mysql connecrtion and cursor objects so we can set up the transfer---'''
+
+        '''---Send the values for the 'data' table to mySQL---'''
+        #####change this func name to be specific to projection data
+        self.list_to_data_table(parsed_data_obj.data_order, parsed_data_obj.data_values, scrape_id)
+
+        '''---Send all the 'include' values to database---'''
+        if parsed_data_obj.included_tag_orders is not None:
+            self.includes_to_db(parsed_data_obj)
+
+        '''---Saving changes to the databse and closing the connection---'''
+        #I should look into what it best practice and when to commit the sql executions I think I like doing it at the end so that if something goes wrong then just nothing is added and it's no problem
+        self._sql_conn.commit()
+
+        return True
+
+    @log_perf
+    def list_to_data_table( self, headers, data, scrape_id):
+        '''
+        Function which will send passed in data into the 'data' table of the local mySQL database
+        Argumetns are:
+            headers - a list of names of the columns of the target table in order for how they apprear in the data
+        
+            data - a list of lists where each sub-list is the list of data that is going into the database. The data point at each index is
+                described by that same index of 'headers' list
+                ****UPDATE THIS TO SHOW THE ACTAUL VALID DATA EXAMPLE*****
+                ex: [
+                    ['172250', 'Jude Bellingham', 'Midfielder', 'https://static.prizepicks.com/images/players/soccer/e83ula4wockmc2xid7185kcq2.webp', 'Jude Bellingham', False, 82, '3372'],
+                    ['197873', 'Jyllissa Harris', 'Defender', 'https://static.prizepicks.com/images/teams/NWSL/Houston_Dash.webp', 'Jyllissa Harris', False, 82, '4156'],
+                    ['171076', 'JÃ¸rgen Strand Larsen', 'Attacker', 'https://static.prizepicks.com/images/manual/JÃ¸rgen Strand Larsen.png', 'JÃ¸rgen Strand Larsen', False, 82, '3356'],
+                    ['215896', 'Courtney Petersen', 'Defender', 'https://static.prizepicks.com/images/teams/NWSL/Racing_Louisville.webp', 'Courtney Petersen', False, 82, '4160']
+                    ]
+
+        '''
+
+        '''---Some fields I expect to be datetimes, so if they are given, parse them as datetime---'''
+        insert_list = list()
+        change_list = list()
+        update_list = list()
+        timeseries_list = list()
+        table = 'projection'
+
+        #Some column names from prizepicks are reserved words in mySQL so that must be changed. For this, simply add a 'my_' to the beginning of the column name
+        #Since there are some values which are expected to change a lot, those are stored differently in a timeseries table. These values need to be ignored when checking for changes
+        #in the main table so the columns of those timeseries are removed from the fix_headers list and handled by themselves rather than with all the other values which are not
+        #expected to change often
+        #Can this be done with list comprehension?
+
+        #convert incoming headers into names that would be saved in mySQL dab
+        mysql_headers = list()
+        mysql_row_len = int()
+        for header in headers:
+            if header in self.SQL_RESERVED_WORDS: 
+                mysql_headers.append(f"my_{header}")
+            elif header in self.PROJECTION_TIME_SERIES:
+                continue
+            else: mysql_headers.append(header)
+        id_index = headers.index("id")
+        mysql_row_len = len(mysql_headers)
+
+        #Get the order for headers from mySQL db
+        mysql_colnames = list()
+        cols_query = f"SHOW COLUMNS FROM {table};"
+        self._sql_cursor.execute(cols_query)
+        cols_list = self._sql_cursor.fetchall()
+        mysql_colnames = [each[0] for each in cols_list]
+        #print(f"Columns in {table}:\n{mysql_colnames}")
+
+        #Some cols are saved as datetimes. Keeping track of this is important when checking for equality
+        my_dts = dict()
+        for i, v in enumerate(cols_list):
+            if v[1] == "datetime":
+                my_dts[v[0]] = i
+
+        #Pull in all existing rows from the db into memory so they can be quickly compared to the incoming data
+        existing_data = list()
+        id_list = tuple(values[id_index] for values in data)
+        my_len = len(id_list)
+        if my_len == 0:
+            print(f"No data to add for {table}. Returning...")
+            return
+        elif len(id_list) == 1:
+            id_list = f"({id_list[0]})"
+        my_query = f"SELECT * FROM {table} WHERE ID IN {id_list};"
+        existing_data = self.read_query(my_query)
+        
+        #Create dictionary where the key is the row id and the value is the row of existing dat in the mysql db. This will be used to quickly 
+        #check for equality of the existing rows vs the incoming ones
+        data_dict = dict()
+        for row in existing_data:
+            data_dict[row[id_index]] = row
+
+        #The DB will keep track of what time these are added and changed, so this time will be used for that.
+        #NOTE: It is importatnt that all times are standardized to UTC first and then have timezone info removed. Since mySQL has issues storing all that info,
+        #it must be converted this way so that any equalitites of datetimes are valid.
+        #   Eventually I'd like to replace this altogether and just use an API request number for it, but that is unnecessary right now
+        current_time = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        #Create a list to map the incoming cols to the mysql cols. Since not all parsed data is stored and not all of the existing cols may be used for a data entry then
+        #this helps accomodate for either of those cases. This will need close integreation with the parser fucntions, but in general going forward, this should be a good
+        #general solution.
+        new_row_mapping = list()
+        for each in mysql_colnames:
+            if each in mysql_headers:
+                new_row_mapping.append(mysql_headers.index(each))
+            else:
+                new_row_mapping.append(None)
+
+        #This loops through each of the incoming data rows to determine what changes need to be made in the db. Any changes that need to be made, the necessary 
+        #data to do that is added to the insert, update, or timeseries list as apropriate. These lists are then executed in batches into the db to make it fast
+        for incoming_row in data:
+
+            #print(f"Incoming row:\n{incoming_row}")
+            #------Setting up data structures to make sure that all types and orders are correct------
+
+            #Map the data from the incoming row into a temp row so that it can be compared against whatever is already in the db in the correct order/format
+            temp_row = list()
+            row_id = incoming_row[id_index]
+            #Maybe this can be optimized to be done in line with the other loop?
+            for i in my_dts.values():
+                if isinstance(incoming_row[i], str):
+                    my_dt = datetime.fromisoformat(incoming_row[i])
+                    utc_dt = my_dt.astimezone(timezone.utc)
+                    incoming_row[i] = utc_dt.replace(tzinfo=None)
+            #Could be list comprehension?
+            for i in new_row_mapping:
+                if i is not None:
+                    temp_row.append(incoming_row[i])
+                else:
+                    temp_row.append(None)
+
+            #------Beginning comparison and adding necessary data to correct lists to make updates------
+
+            #If projection is not already in the DB, then add it
+            existing_row = data_dict.get(row_id)
+            if existing_row is None:
+                '''---If there is nothing already in the DB matching the data id, insert the values straight into the DB---'''
+                insert_list.append(temp_row)
+                
+            #If the projection is already in the DB, then check to see if anything has changed. If a value has changed, then log it in the 
+            #'projection_change_history' table and update the 'projection' table to reflect the new values
+            else:
+                #Flag to make sure I'm only updating the base db table if there is something changed
+                changed = False
+                #Go through each index of incoming version of the row and compare to the existing one
+                for i in range(mysql_row_len):
+                    #If a value has changed, then add it to the change list and mark that a change has been made. This change will be logged in the appropriate change_history table
+                    if existing_row[i] != temp_row[i]:
+                        print(f"Existing val {existing_row[i]} != {temp_row[i]} from incoming. Column: {mysql_headers[i]}")
+                        changed = True
+                        change_list.append([row_id, mysql_headers[i], existing_row[i], current_time, scrape_id])
+                #If a change is made then the latest version of the row must be updated to reflect that change in the base db table
+                if changed:
+                    update_list.append(temp_row)
+
+            #If the incomming row has timeseries data, then this adds it as long as the timeseries value is not null. This must look at the original 
+            #'headers' list since the timeseries headers are removed from 'mysql_headers'. These values are handled differently from columns with values that
+            #are not expected to change very often
+            for timeseries in self.PROJECTION_TIME_SERIES:
+                #Not all timeseries data is always guarunteed, so this check to make sure that the timeseries data actually exists before trying to add anything. 
+                #If it does not exist then just skip it, that's ok.
+                try:
+                    ts_index = headers.index(timeseries)
+                except ValueError:
+                    input(f"Cant find {timeseries} in headers list. Is that ok?")
+                    continue
+                if  incoming_row[ts_index] is not None:
+                    timeseries_list.append([row_id, timeseries, incoming_row[ts_index], current_time, scrape_id])
+        
+        #Function which makes batch requests for the 3 tables to be updated
+        self.add_new_lines(insert_list, change_list, update_list, table, timeseries_list)
+            
+    def add_new_lines(self, my_data_list, data_history_list, update_list, table_name, timeseries_list):
+        
+        '''Can I turn this into some kind of string comprehension?'''
+        if len(my_data_list) > 0:
+            data_alias_list = str()
+            for _ in range(len(my_data_list[0])):
+                data_alias_list += "%s,"
+            my_data_write_query = f"INSERT INTO {table_name} VALUES ({data_alias_list[:-1]});"
+
+        if len(data_history_list) > 0:
+            history_alias_list = str()
+            for _ in range(len(data_history_list[0])):
+                history_alias_list += "%s,"
+            history_write_query = f"INSERT INTO {table_name}_change_history VALUES({history_alias_list[:-1]});"
+
+        if len(update_list) > 0:
+            replace_queries = list()
+            for row in update_list:
+                replace_query = f"REPLACE INTO {table_name} VALUES {tuple(row)} WHERE id = {row[1]};"
+                replace_queries.append(replace_query)
+
+        if len(timeseries_list) > 0:
+            ts_alias_string = str()
+            for _ in range(len(timeseries_list[0])):
+                ts_alias_string += "%s,"
+            ts_write_query = f"INSERT INTO {table_name}_timeseries VALUES ({ts_alias_string[:-1]});"
+
+        '''these below statements can probably be turned into their own function or done inline above (or both)'''
+        if len(my_data_list) > 0:
+            try:
+                self._sql_cursor.executemany(my_data_write_query, my_data_list)
+                print(f"Added {len(my_data_list)} rows to {table_name}")
+            except mysql.connector.Error as sql_err:
+                print(f"ERROR MESSAGE: {sql_err.msg}")
+                print(my_data_write_query)
+                for row in data_history_list:
+                    print(row)
+                
+        if len(update_list) > 0:
+            try:
+                for cmd in replace_queries:
+                    self._sql_cursor.execute(cmd)
+                print(f"Updated {len(update_list)} rows in {table_name}")
+            except mysql.connector.Error as sql_err:
+                input(f"ERROR MESSAGE: {sql_err.msg}")
+                print(replace_query)
+                for row in update_list:
+                    print(row)
+
+        if len(data_history_list) > 0:
+            try:
+                self._sql_cursor.executemany(history_write_query, data_history_list)
+                print(f"Added {len(data_history_list)} rows to {table_name}_change_history")
+            except mysql.connector.Error as sql_err:
+                print(f"ERROR MESSAGE: {sql_err.msg}")
+                print(history_write_query)
+                for row in data_history_list:
+                    print(row)
+
+        if len(timeseries_list) > 0:
+            try:
+                self._sql_cursor.executemany(ts_write_query, timeseries_list)
+                print(f"Added {len(timeseries_list)} rows to {table_name}_timeseries")
+            except mysql.connector.Error as sql_err:
+                print(f"ERROR MESSAGE: {sql_err.msg}")
+                print(ts_write_query)
+                for row in timeseries_list:
+                    print(row)
+
+        return True
+
+    def read_query(self, query):
+        
+        try:
+            self._sql_cursor.execute(query)
+            result = self._sql_cursor.fetchall()
+            return result
+        
+        except Exception as E:
+            print(f"Attempting query: {query}\nBut error occured")
+            raise E
+
+    '''Do I really need this?'''
+    def execute_query(self, query):
+        self._sql_cursor.execute(query)
+
+    def get_cols(self,table_names):
+        '''
+        Function takes in a list of table names and returns a dict where the keys are the table names and the values are lists of the columns in those tables
+        '''
+
+        cols_dict = dict()
+        to_return = None
+        if isinstance(table_names, list):
+            for table in table_names:
+                self._sql_cursor.execute(f"SELECT col_name FROM type_cols WHERE type_name = '{table}';")
+                cols = self._sql_cursor.fetchall()
+                cols_dict[table] = [each[0] for each in cols]
+            #very poor way to go through and make sure that all the mysql reserved word column names are obvuscated from rest of program by removeing the 'my_' from the beginning of some col names
+            for table in cols_dict:
+                cols_dict[table] = self._remove_mysql_prefix(cols_dict[table])
+            to_return = cols_dict
+
+        elif isinstance(table_names, str):
+            self._sql_cursor.execute(f"SELECT col_name FROM type_cols WHERE type_name = '{table}';")
+            cols = self._sql_cursor.fetchall()
+            #very poor way to go through and make sure that all the mysql reserved word column names are obvuscated from rest of program by removeing the 'my_' from the beginning of some col names
+            to_return = self._remove_mysql_prefix([each[0] for each in cols])
+
+        else:
+            raise TypeError(f"table_names must be a list or a str. Got type: {type(table_names)}")
+        
+        return to_return
+
+    def _remove_mysql_prefix(self, name_list):
+        '''
+        Shitty code that I should just do with list comprehension, but this is easier to read for now
+        '''
+        clean_list = list()
+        for col_name in name_list:
+            if len(col_name) > 3 and col_name[:3] == "my_":
+                clean_list.append(col_name[3:])
+            else:
+                clean_list.append(col_name)
+        return clean_list
+
+    def post_scrape_error(self, scrape_id, error):
+        update_existing = f"UPDATE scrape_data SET my_status = {error} WHERE id = {scrape_id};"
+        self._sql_cursor.execute(update_existing)
+        self._sql_conn.commit()
+
+
 
 #Rest of mysql reserved words here: https://dev.mysql.com/doc/refman/8.4/en/keywords.html
 SQL_RESERVED_WORDS = {
@@ -854,10 +1240,4 @@ def update_typecols(table_name):
     conn.close()
     return True
 
-def post_scrape_error(scrape_id, error):
-    update_existing = f"UPDATE scrape_data SET my_status = {error} WHERE id = {scrape_id};"
-    conn = create_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(update_existing)
-    conn.commit()
-    conn.close()
+

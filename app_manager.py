@@ -1,7 +1,7 @@
 import os
-import web_scraper
+from web_scraper import get_prizepicks
 import my_parser
-from prizepicks_db import send_to_sql, post_scrape_error
+from prizepicks_db import prizepicks_db
 import my_logs
 import datetime
 import time
@@ -59,10 +59,12 @@ def hour_run():
     consec_errors = 0
     SNAPSHOT = 2
     ABORT = 5
+    pp_db = prizepicks_db()
+
 
     for iter in range(60):
         print(f"-------API call #{iter} at time {datetime.datetime.now()}--------")
-        scrape_data = web_scraper.new_get_prizepicks("NBA")
+        scrape_data = get_prizepicks("NBA")
         webpage = scrape_data[0]
         scrape_id = scrape_data[1]
         wp_data = my_parser.parse_webpage(webpage)
@@ -70,7 +72,7 @@ def hour_run():
         #logging errors posted from parsing fucntion
         if isinstance(wp_data, int):
             consec_errors += 1
-            post_scrape_error(scrape_id, wp_data)
+            pp_db.post_scrape_error(scrape_id, wp_data)
             print(f"!!!FOUND AN ERROR!!!\nErnum: {wp_data} for scrape_id: {scrape_id}")
             err_log.error(f"Ernum: {wp_data}\tscrape_id: {scrape_id}\tcons_count: {consec_errors}")
             if consec_errors >= SNAPSHOT:
@@ -80,10 +82,10 @@ def hour_run():
                 exit("Exiting...")
 
         else:
-            print(f"SQL status: {send_to_sql(wp_data, scrape_id)}")
+            print(f"SQL status: {pp_db.send_to_sql(wp_data, scrape_id)}")
             consec_errors = 0
         print(f"...Sleeping...\n")
-        time.sleep(60)
+        time.sleep(15)
 
 if __name__ == "__main__":
     '''
