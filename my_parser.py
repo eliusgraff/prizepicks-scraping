@@ -1,7 +1,6 @@
 from bs4 import BeautifulSoup
 import json
-from datetime import datetime
-from parsed_data import parsed_data, player_stats
+from parsed_data import parsed_data
 from my_logs import log_perf
 from prizepicks_db import get_cols
 
@@ -64,8 +63,14 @@ def parse_webpage(webpage):
     Parsing the data tags will return a list of values to coorespond to each of the values in the 'data_order' list. Before adding it all into the mySQL db.
     '''
     '''---Get the json data from the raw html---'''
-        
-    json_data = discard_html(webpage)
+    
+    try:
+        json_data = discard_html(webpage)
+        if json_data is False:
+            return 1001
+    except json.decoder.JSONDecodeError as e:
+        return 1002
+    
     parsed_tags = ["projection", "duration", "league", "league_data", "lfg_ignored_leagues", "new_player", "projection_type", "stat_average","stat_type", "team"]
     col_orders = get_cols(parsed_tags)
 
@@ -77,19 +82,7 @@ def parse_webpage(webpage):
     proj_order = col_orders['projection']
     '''---Define large data structure where all the parsed data will reside until it is sent to mySQL---'''
     data_values = parse_proj_json(json_data, proj_order)
-    
-    '''print("          ")
-    for proj in proj_order:
-        print(f"{proj}", end = "\t")
-    print()
-    for i, row in enumerate(data_values):
-        if i == 25:
-            break
-        print(i, end =" : ")
-        for val in row:
-            print(f"{val}", end = "\t")
-        print()'''
-    
+
     return parsed_data(col_orders['projection'], data_values, None, None)    
     #Will need to add support for the 'included' fields later once I have the updated design for projections
     included_tag_orders = {k: v for k, v in col_orders.items() if k != 'projection'}
@@ -159,7 +152,7 @@ def parse_proj_data(data_item, col_order):
 @log_perf
 def parse_proj_json(json_data, order):
     data_values = []
-    print("Parsing 'projection' tags...")
+    #print("Parsing 'projection' tags...")
     for item in json_data['data']:
 
         '''---For each of the tags in the 'data' tag, send them all to the 'data' parser to get the necessary data from the json---'''

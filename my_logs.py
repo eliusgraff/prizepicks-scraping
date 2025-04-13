@@ -10,7 +10,6 @@ def log_perf(func):
         ret_obj = func(*args, **kwargs)
         t=perf_counter()-s
         perf_log.debug(f"{func.__name__}:{str(t)}")
-        print(f"logged: {func.__name__}:{str(t)}")
         return ret_obj
 
     return wrapper
@@ -28,12 +27,17 @@ def create_loggers():
     if not os.path.isdir(log_path): 
         os.mkdir(log_path)
     
-    '''---Set up logger object name and level---'''
-    _Performance_Log = logging.getLogger("perf")
-    _Performance_Log.setLevel("DEBUG")
+    '''---Set up logger for perfromance---'''
+    Performance_Log = logging.getLogger("perf")
+    Performance_Log.setLevel("DEBUG")
+    perf_file_handler = logging.FileHandler(f"{log_path}\\Performance.log")
+    Performance_Log.addHandler(perf_file_handler)
+    Performance_Log.critical(f"-------NEW RUN STARTING-------")
+    
+    '''---Set up logger for errors---'''
+    Error_Log = logging.getLogger("err_log")
+    Error_Log.setLevel("ERROR")
+    error_file_handler = logging.FileHandler(f"{log_path}\\Error.log")
+    Error_Log.addHandler(error_file_handler)
+    Error_Log.critical(f"-------NEW RUN STARTING-------")
 
-    '''---Defining and setting formatter and file handler---'''
-    file_handler = logging.FileHandler(f"{log_path}\\Performance.log")
-    _Performance_Log.addHandler(file_handler)
-    _Performance_Log.critical(f"-------NEW RUN STARTING-------")
-    return
