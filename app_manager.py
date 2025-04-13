@@ -60,10 +60,10 @@ def hour_run():
     SNAPSHOT = 2
     ABORT = 5
     pp_db = prizepicks_db()
+    my_range = 240
 
-
-    for iter in range(60):
-        print(f"-------API call #{iter} at time {datetime.datetime.now()}--------")
+    for iter in range(my_range):
+        print(f"-------API call #{iter}/{my_range} at time {datetime.datetime.now()}--------")
         scrape_data = get_prizepicks("NBA")
         webpage = scrape_data[0]
         scrape_id = scrape_data[1]
@@ -84,8 +84,8 @@ def hour_run():
         else:
             print(f"SQL status: {pp_db.send_to_sql(wp_data, scrape_id)}")
             consec_errors = 0
-        print(f"...Sleeping...\n")
-        time.sleep(15)
+        print(f"...Completed #{iter}/{my_range}...\n...Sleeping...\n")
+        time.sleep(30)
 
 if __name__ == "__main__":
     '''

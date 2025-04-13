@@ -30,7 +30,9 @@ class prizepicks_db:
     }
     PROJECTION_TIME_SERIES = {
         "line_score",
-        "trending_count"
+        "trending_count",
+        "rank",
+        
     }
     ENDPOINT_ID = {
         'projection':1,
@@ -249,7 +251,7 @@ class prizepicks_db:
                 for i in range(mysql_row_len):
                     #If a value has changed, then add it to the change list and mark that a change has been made. This change will be logged in the appropriate change_history table
                     if existing_row[i] != temp_row[i]:
-                        print(f"Existing val {existing_row[i]} != {temp_row[i]} from incoming. Column: {mysql_headers[i]}")
+                        #print(f"Existing val {existing_row[i]} != {temp_row[i]} from incoming. Column: {mysql_headers[i]}")
                         changed = True
                         change_list.append([row_id, mysql_headers[i], existing_row[i], current_time, scrape_id])
                 #If a change is made then the latest version of the row must be updated to reflect that change in the base db table
@@ -274,75 +276,87 @@ class prizepicks_db:
         self.add_new_lines(insert_list, change_list, update_list, table, timeseries_list)
             
     def add_new_lines(self, my_data_list, data_history_list, update_list, table_name, timeseries_list):
-        
-        '''Can I turn this into some kind of string comprehension?'''
+        #Function takes various lists of data ll of which needs to be updated in the db, and updates the db with that data
+
+        if len(update_list) > 0:
+            #To update the existing projection rows in the db, they are first deleted and then replaced by the updated rows
+
+            #Goes through the update list and grabs the ids of the rows that need to be deleted
+            delete_ids = list()
+            for row in update_list:
+                delete_ids.append(row[1])
+            
+            #add the updated row to my_data_list so that the latest data is inserted into the db
+            my_data_list += update_list
+
+            #SQL query to delete the rows with old data in them
+            delete_query = f"DELETE FROM {table_name} WHERE ID IN ({','.join(delete_ids)});"
+            try:
+                self._sql_cursor.execute(delete_query)
+            except mysql.connector.Error as sql_err:
+                self.report_sql_error(sql_err, delete_query, update_list)
+
         if len(my_data_list) > 0:
+            #All of the data which needs to be inserted into the projection table is manged here
+
+            #Create the SQL query to format and insert the data into the db
             data_alias_list = str()
             for _ in range(len(my_data_list[0])):
                 data_alias_list += "%s,"
             my_data_write_query = f"INSERT INTO {table_name} VALUES ({data_alias_list[:-1]});"
+            
+            #Execute the SQL query created above
+            try:
+                self._sql_cursor.executemany(my_data_write_query, my_data_list)
+                print(f"Added {len(my_data_list)} rows to {table_name}")
+            except mysql.connector.Error as sql_err:
+                self.report_sql_error(sql_err, my_data_write_query, my_data_list)
 
+                
         if len(data_history_list) > 0:
+            #All of the changes to the projections are tracked. This block adds the changed attributes and values into the table tracking the history of the changes
+            
+            #Create the SQL query to format and insert the data into the db
             history_alias_list = str()
             for _ in range(len(data_history_list[0])):
                 history_alias_list += "%s,"
             history_write_query = f"INSERT INTO {table_name}_change_history VALUES({history_alias_list[:-1]});"
+            
+            #Execute the SQL query created above
+            try:
+                self._sql_cursor.executemany(history_write_query, data_history_list)
+                print(f"Added {len(data_history_list)} rows to {table_name}_change_history")
+            except mysql.connector.Error as sql_err:
+                self.report_sql_error(sql_err, history_write_query, data_history_list)
 
-        if len(update_list) > 0:
-            replace_queries = list()
-            for row in update_list:
-                replace_query = f"REPLACE INTO {table_name} VALUES {tuple(row)} WHERE id = {row[1]};"
-                replace_queries.append(replace_query)
 
         if len(timeseries_list) > 0:
+            #Some of the projection attributes are expected to change all the time. Rather than keep changing the whole projection record every time, these
+            #values are tracked/stored in this timeseries table and the latest values are alwyas inserted in here. This does not check if that value has changed
+            #at all, it just adds it no matter what
+
+            #Create the SQL query to format and insert the data into the db
             ts_alias_string = str()
             for _ in range(len(timeseries_list[0])):
                 ts_alias_string += "%s,"
             ts_write_query = f"INSERT INTO {table_name}_timeseries VALUES ({ts_alias_string[:-1]});"
 
-        '''these below statements can probably be turned into their own function or done inline above (or both)'''
-        if len(my_data_list) > 0:
-            try:
-                self._sql_cursor.executemany(my_data_write_query, my_data_list)
-                print(f"Added {len(my_data_list)} rows to {table_name}")
-            except mysql.connector.Error as sql_err:
-                print(f"ERROR MESSAGE: {sql_err.msg}")
-                print(my_data_write_query)
-                for row in data_history_list:
-                    print(row)
-                
-        if len(update_list) > 0:
-            try:
-                for cmd in replace_queries:
-                    self._sql_cursor.execute(cmd)
-                print(f"Updated {len(update_list)} rows in {table_name}")
-            except mysql.connector.Error as sql_err:
-                input(f"ERROR MESSAGE: {sql_err.msg}")
-                print(replace_query)
-                for row in update_list:
-                    print(row)
-
-        if len(data_history_list) > 0:
-            try:
-                self._sql_cursor.executemany(history_write_query, data_history_list)
-                print(f"Added {len(data_history_list)} rows to {table_name}_change_history")
-            except mysql.connector.Error as sql_err:
-                print(f"ERROR MESSAGE: {sql_err.msg}")
-                print(history_write_query)
-                for row in data_history_list:
-                    print(row)
-
-        if len(timeseries_list) > 0:
+            #Execute the SQL query created above
             try:
                 self._sql_cursor.executemany(ts_write_query, timeseries_list)
                 print(f"Added {len(timeseries_list)} rows to {table_name}_timeseries")
             except mysql.connector.Error as sql_err:
-                print(f"ERROR MESSAGE: {sql_err.msg}")
-                print(ts_write_query)
-                for row in timeseries_list:
-                    print(row)
+                self.report_sql_error(sql_err, ts_write_query, timeseries_list)
+
 
         return True
+    
+    def report_sql_error(self, error, query, rows):
+        print(f"Query: {query}")
+        input(f"ERROR MESSAGE: {error.msg}")
+        for row in rows:
+            print(row)
+        exit()
 
     def read_query(self, query):
         
