@@ -1485,3 +1485,73 @@ list_to_data_table:1.2701089000001957
 parse_proj_json:0.23919650000061665
 parse_webpage:0.6730912999992142
 list_to_data_table:1.8829199000001609
+parse_proj_json:0.12577819999933126
+parse_webpage:0.3794613999998546
+list_to_data_table:0.8823269000004075
+parse_proj_json:0.08359800000016548
+parse_webpage:0.3952900000003865
+list_to_data_table:0.6340682999998535
+parse_webpage:0.050596500000210654
+-------NEW RUN STARTING-------
+parse_proj_json:0.0802845999999997
+parse_webpage:0.3305417000000004
+list_to_data_table:0.7088621999999996
+parse_proj_json:0.03930439999999891
+parse_webpage:0.21481189999999373
+list_to_data_table:0.6286425999999992
+parse_proj_json:0.051427000000003886
+parse_webpage:0.23301560000000165
+list_to_data_table:0.7182452999999924
+parse_proj_json:0.09838999999999487
+parse_webpage:0.3792769000000078
+list_to_data_table:1.2165356000000003
+-------NEW RUN STARTING-------
+parse_proj_json:0.06313929999999957
+parse_webpage:0.3310776999999998
+list_to_data_table:0.3056150000000004
+parse_proj_json:0.039668399999996495
+parse_webpage:0.21899539999999718
+list_to_data_table:1.593933700000001
+-------NEW RUN STARTING-------
+parse_proj_json:0.050837800000000044
+parse_webpage:0.20079279999999944
+-------NEW RUN STARTING-------
+parse_proj_json:0.048102700000000276
+parse_webpage:0.21434649999999955
+-------NEW RUN STARTING-------
+parse_webpage:0.08040470000000033
+-------NEW RUN STARTING-------
+parse_webpage:0.015988899999999973
+parse_proj_json:0.04943060000000088
+parse_webpage:3.296725700000003
+-------NEW RUN STARTING-------
+parse_proj_json:0.043077999999999506
+parse_webpage:2.5049188000000004
+-------NEW RUN STARTING-------
+parse_proj_json:0.04601450000000007
+parse_webpage:0.23025280000000015
+-------NEW RUN STARTING-------
+parse_proj_json:0.07744649999999975
+parse_webpage:0.33737249999999985
+-------NEW RUN STARTING-------
+parse_proj_json:0.11113750000000078
+parse_webpage:0.40081780000000045
+-------NEW RUN STARTING-------
+parse_proj_json:0.07372460000000025
+parse_webpage:0.3579792999999998
+-------NEW RUN STARTING-------
+parse_proj_json:0.09550749999999963
+parse_webpage:0.38778200000000007
+-------NEW RUN STARTING-------
+parse_proj_json:0.07651509999999995
+parse_webpage:0.35425280000000026
+-------NEW RUN STARTING-------
+parse_proj_json:0.003181699999999843
+parse_webpage:0.1323634999999994
+-------NEW RUN STARTING-------
+parse_proj_json:0.004185699999999848
+parse_webpage:0.11903099999999966
+-------NEW RUN STARTING-------
+parse_proj_json:0.001037900000000036
+parse_webpage:0.08979959999999965
+list_to_data_table:0.1961172000000002

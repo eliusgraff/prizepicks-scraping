@@ -31,8 +31,7 @@ class prizepicks_db:
     PROJECTION_TIME_SERIES = {
         "line_score",
         "trending_count",
-        "rank",
-        
+        "rank"
     }
     ENDPOINT_ID = {
         'projection':1,
@@ -118,6 +117,47 @@ class prizepicks_db:
         self._sql_conn.commit()
 
         return True
+    
+    def create_col_ordering(self, headers, table):
+        
+        #request db for order of attributes of the columns in the projection table
+        mysql_cols = list()
+        cols_query = f"SHOW COLUMNS FROM {table};"
+        self._sql_cursor.execute(cols_query)
+        cols_list = self._sql_cursor.fetchall()
+        mysql_cols = [each[0] for each in cols_list]
+
+        #This list will be used to map which index of the incoming headers corresponds to the index of the mysql columns
+        mysql_map = [None]*len(mysql_cols)
+
+        #Some cols are saved as datetimes. Keeping track of which cols in table are dts is important when checking for equality later
+        dt_indexes = list()
+        for i, v in enumerate(cols_list):
+            if v[1] == "datetime":
+                dt_indexes.append(i)
+
+        #Take the incoming header list and make sure all names are translated to be mysql-compatible
+        translated_headers = list()
+        for i,header in enumerate(headers):
+            if header in self.SQL_RESERVED_WORDS: 
+                header = f"my_{header}"
+            translated_headers.append(header)
+            try:
+                print(f"Looking for: {header}")
+                col_num = mysql_cols.index(header)
+                mysql_map[col_num] = i
+            except ValueError:
+                print("\tCouldn't find it")
+                continue
+
+        for i,v in enumerate(mysql_map):
+            print(f"{mysql_cols[i]} -> {headers[v]}", end="")
+            if i in dt_indexes:
+                print(" !!!!!DATETIME!!!!!")
+            else:
+                print()
+        
+        return (mysql_map, dt_indexes, translated_headers)
 
     @log_perf
     def list_to_data_table( self, headers, data, scrape_id):
@@ -135,49 +175,16 @@ class prizepicks_db:
                     ['171076', 'JÃ¸rgen Strand Larsen', 'Attacker', 'https://static.prizepicks.com/images/manual/JÃ¸rgen Strand Larsen.png', 'JÃ¸rgen Strand Larsen', False, 82, '3356'],
                     ['215896', 'Courtney Petersen', 'Defender', 'https://static.prizepicks.com/images/teams/NWSL/Racing_Louisville.webp', 'Courtney Petersen', False, 82, '4160']
                     ]
-
         '''
 
-        '''---Some fields I expect to be datetimes, so if they are given, parse them as datetime---'''
         insert_list = list()
         change_list = list()
         update_list = list()
         timeseries_list = list()
         table = 'projection'
-
-        #Some column names from prizepicks are reserved words in mySQL so that must be changed. For this, simply add a 'my_' to the beginning of the column name
-        #Since there are some values which are expected to change a lot, those are stored differently in a timeseries table. These values need to be ignored when checking for changes
-        #in the main table so the columns of those timeseries are removed from the fix_headers list and handled by themselves rather than with all the other values which are not
-        #expected to change often
-        #Can this be done with list comprehension?
-
-        #convert incoming headers into names that would be saved in mySQL dab
-        mysql_headers = list()
-        mysql_row_len = int()
-        for header in headers:
-            if header in self.SQL_RESERVED_WORDS: 
-                mysql_headers.append(f"my_{header}")
-            elif header in self.PROJECTION_TIME_SERIES:
-                continue
-            else: mysql_headers.append(header)
+        
+        #Pull in all existing rows with parsed ids so they can be compared against existing data
         id_index = headers.index("id")
-        mysql_row_len = len(mysql_headers)
-
-        #Get the order for headers from mySQL db
-        mysql_colnames = list()
-        cols_query = f"SHOW COLUMNS FROM {table};"
-        self._sql_cursor.execute(cols_query)
-        cols_list = self._sql_cursor.fetchall()
-        mysql_colnames = [each[0] for each in cols_list]
-        #print(f"Columns in {table}:\n{mysql_colnames}")
-
-        #Some cols are saved as datetimes. Keeping track of this is important when checking for equality
-        my_dts = dict()
-        for i, v in enumerate(cols_list):
-            if v[1] == "datetime":
-                my_dts[v[0]] = i
-
-        #Pull in all existing rows from the db into memory so they can be quickly compared to the incoming data
         existing_data = list()
         id_list = tuple(values[id_index] for values in data)
         my_len = len(id_list)
@@ -188,6 +195,12 @@ class prizepicks_db:
             id_list = f"({id_list[0]})"
         my_query = f"SELECT * FROM {table} WHERE ID IN {id_list};"
         existing_data = self.read_query(my_query)
+
+        #Call function to map the incoming data indicies to the order that the db requires
+        mapping_dts = self.create_col_ordering(headers, table)
+        mapping = mapping_dts[0]
+        dts = mapping_dts[1]
+        translated_headers = mapping_dts[2]
         
         #Create dictionary where the key is the row id and the value is the row of existing dat in the mysql db. This will be used to quickly 
         #check for equality of the existing rows vs the incoming ones
@@ -195,44 +208,28 @@ class prizepicks_db:
         for row in existing_data:
             data_dict[row[id_index]] = row
 
-        #The DB will keep track of what time these are added and changed, so this time will be used for that.
-        #NOTE: It is importatnt that all times are standardized to UTC first and then have timezone info removed. Since mySQL has issues storing all that info,
-        #it must be converted this way so that any equalitites of datetimes are valid.
-        #   Eventually I'd like to replace this altogether and just use an API request number for it, but that is unnecessary right now
-        current_time = datetime.now(timezone.utc).replace(tzinfo=None)
-
-        #Create a list to map the incoming cols to the mysql cols. Since not all parsed data is stored and not all of the existing cols may be used for a data entry then
-        #this helps accomodate for either of those cases. This will need close integreation with the parser fucntions, but in general going forward, this should be a good
-        #general solution.
-        new_row_mapping = list()
-        for each in mysql_colnames:
-            if each in mysql_headers:
-                new_row_mapping.append(mysql_headers.index(each))
-            else:
-                new_row_mapping.append(None)
-
         #This loops through each of the incoming data rows to determine what changes need to be made in the db. Any changes that need to be made, the necessary 
         #data to do that is added to the insert, update, or timeseries list as apropriate. These lists are then executed in batches into the db to make it fast
         for incoming_row in data:
-
-            #print(f"Incoming row:\n{incoming_row}")
-            #------Setting up data structures to make sure that all types and orders are correct------
-
+                            
             #Map the data from the incoming row into a temp row so that it can be compared against whatever is already in the db in the correct order/format
             temp_row = list()
             row_id = incoming_row[id_index]
-            #Maybe this can be optimized to be done in line with the other loop?
-            for i in my_dts.values():
-                if isinstance(incoming_row[i], str):
-                    my_dt = datetime.fromisoformat(incoming_row[i])
-                    utc_dt = my_dt.astimezone(timezone.utc)
-                    incoming_row[i] = utc_dt.replace(tzinfo=None)
-            #Could be list comprehension?
-            for i in new_row_mapping:
+            num_cols = len(mapping)
+            
+            #Adds incoming data to the temp row in the correct order
+            for i in mapping:
                 if i is not None:
                     temp_row.append(incoming_row[i])
                 else:
                     temp_row.append(None)
+
+            #Converts any datetimes to datetime objects of the same format to their comparison is valid
+            for i in dts:
+                if isinstance(temp_row[i], str):
+                    my_dt = datetime.fromisoformat(temp_row[i])
+                    utc_dt = my_dt.astimezone(timezone.utc)
+                    temp_row[i] = utc_dt.replace(tzinfo=None)
 
             #------Beginning comparison and adding necessary data to correct lists to make updates------
 
@@ -245,15 +242,15 @@ class prizepicks_db:
             #If the projection is already in the DB, then check to see if anything has changed. If a value has changed, then log it in the 
             #'projection_change_history' table and update the 'projection' table to reflect the new values
             else:
-                #Flag to make sure I'm only updating the base db table if there is something changed
-                changed = False
                 #Go through each index of incoming version of the row and compare to the existing one
-                for i in range(mysql_row_len):
+                changed = False
+                for i in range(num_cols):
                     #If a value has changed, then add it to the change list and mark that a change has been made. This change will be logged in the appropriate change_history table
                     if existing_row[i] != temp_row[i]:
-                        #print(f"Existing val {existing_row[i]} != {temp_row[i]} from incoming. Column: {mysql_headers[i]}")
+                        print(f"Existing val {existing_row[i]} != {temp_row[i]} from incoming. Column: {headers[mapping[i]]}")
                         changed = True
-                        change_list.append([row_id, mysql_headers[i], existing_row[i], current_time, scrape_id])
+                        change_list.append([row_id, translated_headers[mapping[i]], existing_row[i], scrape_id])
+
                 #If a change is made then the latest version of the row must be updated to reflect that change in the base db table
                 if changed:
                     update_list.append(temp_row)
@@ -270,7 +267,7 @@ class prizepicks_db:
                     input(f"Cant find {timeseries} in headers list. Is that ok?")
                     continue
                 if  incoming_row[ts_index] is not None:
-                    timeseries_list.append([row_id, timeseries, incoming_row[ts_index], current_time, scrape_id])
+                    timeseries_list.append([row_id, timeseries, incoming_row[ts_index], scrape_id])
         
         #Function which makes batch requests for the 3 tables to be updated
         self.add_new_lines(insert_list, change_list, update_list, table, timeseries_list)
