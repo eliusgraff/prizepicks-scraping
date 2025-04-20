@@ -50,6 +50,10 @@ class prizepicks_db:
         self._set_external_data_names()
 
     def _set_external_data_names(self):
+        #Run to concisely get all the names of all the data names for a given data type parsed from the prizepicks api
+        #This function runs through all the tables of the db, which are hard-coded into the _MY_TABLES member variale
+        #And runs through all the tables in the db which could contain data about them and stores it in a dict which
+        #Is stored as a member variable
 
         for table_name in self._MY_TABLES:
             
@@ -70,13 +74,14 @@ class prizepicks_db:
             self._external_data_names[table_name] = data_names + ts_names
 
     def get_data_to_parse(self):
+        #Don't want caller messing with the member variabell directly, so this fuctions allows a caller to a
+        #copy of those names
         return self._external_data_names.copy()
 
     def _create_db_connection(self, db_name="prizepicks", host_name= None, user_name = None, user_password = None):
-        '''
-        Function to create a connection to the local mySQL database. Credentials can be passed in or they default to None and if host_name is left as None
-        then the root_login() function will get the root login data form a file somewhere on the computer
-        '''
+        
+        #Function to create a connection to the local mySQL database. Credentials can be passed in or they default to None and if host_name is left as None
+        #then the root_login() function will get the root login data form a file somewhere on the computer
         if host_name is None:
             creds = self._root_login()
             host_name = creds['hn']
@@ -95,17 +100,17 @@ class prizepicks_db:
     
     #Long term, this should not need to be root user
     def _root_login(self):
-        '''
-        This function is used to retrive the username, host name, and password to gain access to the local
-        mySQL database. requires that the user have a file called 'secrets.txt' where 3 of the lines in it are:
-        mysql_un=username
-        mysql_pw=password
-        mysql_hn=hostname
         
-        So, to access this, that file must be setup beforehand and then this function will work properly as it
-        is simply reading those 3 items from the file. It muse have *accurate* user info of the 3
-        fields above to get into the SQL DB
-        '''
+        #This function is used to retrive the username, host name, and password to gain access to the local
+        #mySQL database. requires that the user have a file called 'secrets.txt' where 3 of the lines in it are:
+        #mysql_un=username
+        #mysql_pw=password
+        #mysql_hn=hostname
+        
+        #So, to access this, that file must be setup beforehand and then this function will work properly as it
+        #is simply reading those 3 items from the file. It muse have *accurate* user info of the 3
+        #fields above to get into the SQL DB
+        
         my_dict = helper.get_secret("mysql")
         '''---Checking to make sure all the necessary parts were read from file---'''
         not_found_list = []
@@ -125,33 +130,27 @@ class prizepicks_db:
         return my_dict
 
     def send_to_sql(self, parsed_data_obj, scrape_id):
-        '''
-        Function takes in a parsed_data object and is responsible for sending all that information to mySQL database
-        '''
-        '''---assert that the argument is correct data structure---'''
+        #Function called by app manager to send the parsed data to the local mySQL database
+        
         assert isinstance(parsed_data_obj, parsed_data)
-        '''---Creating mysql connecrtion and cursor objects so we can set up the transfer---'''
 
-        '''---Send the values for the 'data' table to mySQL---'''
-        #####change this func name to be specific to projection data
-        self._list_to_data_table(parsed_data_obj.data_order, parsed_data_obj.data_values, scrape_id)
+        #Sends values parsed into the projection table
+        self._list_to_projection_table(parsed_data_obj.data_order, parsed_data_obj.data_values, scrape_id)
 
-        '''---Send all the 'include' values to database---'''
-        if parsed_data_obj.included_tag_orders is not None:
-            self.includes_to_db(parsed_data_obj)
-
-        '''---Saving changes to the databse and closing the connection---'''
-        #I should look into what it best practice and when to commit the sql executions I think I like doing it at the end so that if something goes wrong then just nothing is added and it's no problem
+        #Commits changes made during above functions
         self._sql_conn.commit()
 
         return True
     
-    def _create_col_ordering(self, headers, table):
-        
-        #request db for order of attributes of the columns in the projection table
+    def _create_col_ordering(self, headers, table): 
+        #Function takes in the headers of the incoming data and maps them to the order which they appear in the mysql table 
+
         mysql_cols = list()
-        cols_query = f"SHOW COLUMNS FROM {table};"
-        self._sql_cursor.execute(cols_query)
+        mysql_map = list()
+        dt_indexes = list()
+        translated_headers = list()
+
+        self._sql_cursor.execute(f"SHOW COLUMNS FROM {table};")
         cols_list = self._sql_cursor.fetchall()
         mysql_cols = [each[0] for each in cols_list]
 
@@ -159,13 +158,11 @@ class prizepicks_db:
         mysql_map = [None]*len(mysql_cols)
 
         #Some cols are saved as datetimes. Keeping track of which cols in table are dts is important when checking for equality later
-        dt_indexes = list()
         for i, v in enumerate(cols_list):
             if v[1] == "datetime":
                 dt_indexes.append(i)
 
         #Take the incoming header list and make sure all names are translated to be mysql-compatible
-        translated_headers = list()
         for i,header in enumerate(headers):
             if header in self.SQL_RESERVED_WORDS: 
                 header = f"my_{header}"
@@ -175,43 +172,12 @@ class prizepicks_db:
                 mysql_map[col_num] = i
             except ValueError:
                 continue
-
-        '''for i,v in enumerate(mysql_map):
-            print(f"{mysql_cols[i]} -> {headers[v]}", end="")
-            if i in dt_indexes:
-                print(" !!!!!DATETIME!!!!!")
-            else:
-                print()'''
         
         return (mysql_map, dt_indexes, translated_headers)
 
-    @log_perf
-    def _list_to_data_table( self, headers, data, scrape_id):
-        '''
-        Function which will send passed in data into the 'data' table of the local mySQL database
-        Argumetns are:
-            headers - a list of names of the columns of the target table in order for how they apprear in the data
+    def _get_existing_data(self, data, table, id_index):
         
-            data - a list of lists where each sub-list is the list of data that is going into the database. The data point at each index is
-                described by that same index of 'headers' list
-                ****UPDATE THIS TO SHOW THE ACTAUL VALID DATA EXAMPLE*****
-                ex: [
-                    ['172250', 'Jude Bellingham', 'Midfielder', 'https://static.prizepicks.com/images/players/soccer/e83ula4wockmc2xid7185kcq2.webp', 'Jude Bellingham', False, 82, '3372'],
-                    ['197873', 'Jyllissa Harris', 'Defender', 'https://static.prizepicks.com/images/teams/NWSL/Houston_Dash.webp', 'Jyllissa Harris', False, 82, '4156'],
-                    ['171076', 'JÃ¸rgen Strand Larsen', 'Attacker', 'https://static.prizepicks.com/images/manual/JÃ¸rgen Strand Larsen.png', 'JÃ¸rgen Strand Larsen', False, 82, '3356'],
-                    ['215896', 'Courtney Petersen', 'Defender', 'https://static.prizepicks.com/images/teams/NWSL/Racing_Louisville.webp', 'Courtney Petersen', False, 82, '4160']
-                    ]
-        '''
-
-        insert_list = list()
-        change_list = list()
-        update_list = list()
-        timeseries_list = list()
-        table = 'projection'
-        
-        #Pull in all existing rows with parsed ids so they can be compared against existing data
-        id_index = headers.index("id")
-        existing_data = list()
+        #Pull in all incoming row ids so db can be queried for existing rows
         id_list = tuple(values[id_index] for values in data)
         my_len = len(id_list)
         if my_len == 0:
@@ -219,17 +185,74 @@ class prizepicks_db:
             return
         elif len(id_list) == 1:
             id_list = f"({id_list[0]})"
-        my_query = f"SELECT * FROM {table} WHERE ID IN {id_list};"
-        existing_data = self.read_query(my_query)
+        return self.read_query(f"SELECT * FROM {table} WHERE ID IN {id_list};")
 
-        #Call function to map the incoming data indicies to the order that the db requires
-        mapping_dts = self._create_col_ordering(headers, table)
-        mapping = mapping_dts[0]
-        dts = mapping_dts[1]
-        translated_headers = mapping_dts[2]
+    def _add_timeseries(self, headers, incoming_row, row_id, scrape_id):
+        #Function to create timeseries entires for each entry in the incoming row if it exists
+        #If timeseries data does exist in the incoming row, then the row which must be added to the
+        #mysql is returned
+
+        timeseries_list = list()
+
+        for timeseries in self.PROJECTION_TIME_SERIES:
+            #Not all timeseries data is always guarunteed, so this check to make sure that the timeseries data actually exists before trying to add anything. 
+            #If it does not exist then just skip it, that's ok.
+            try:
+                ts_index = headers.index(timeseries)
+            except ValueError:
+                input(f"Cant find {timeseries} in headers list. Is that ok?")
+                continue
+            if  incoming_row[ts_index] is not None:
+                timeseries_list.append([row_id, timeseries, incoming_row[ts_index], scrape_id])
+
+        return timeseries_list
+
+    def _create_changes(self, num_cols, mapping, translated_headers, existing_row, temp_row, row_id, scrape_id, change_list):
+        #This fucntion goes through each of the items of two existing and incoming data rows and compares them. If any differences then
+        #They are added to the change list in the formate I want to store in the db and returned to the caller
+        change_list = list()
+        for i in range(num_cols):
+            #If a value has changed, then add it to the change list and mark that a change has been made. This change will be logged in the appropriate change_history table
+            if existing_row[i] != temp_row[i]:
+                change_list.append([row_id, translated_headers[mapping[i]], existing_row[i], scrape_id])
         
-        #Create dictionary where the key is the row id and the value is the row of existing dat in the mysql db. This will be used to quickly 
-        #check for equality of the existing rows vs the incoming ones
+        return change_list
+    
+    @log_perf
+    def _list_to_projection_table( self, headers, data, scrape_id):
+        #Function which will send passed in data into the 'data' table of the local mySQL database
+        #Argumetns are:
+        #    headers - a list of names of the columns of the target table in order for how they apprear in the data
+         
+        #    data - a list of lists where each sub-list is the list of data that is going into the database. The data point at each index is
+        #        described by that same index of 'headers' list
+        #        ex: [
+        #            ['172250', 'Jude Bellingham', 'Midfielder', 'https://static.prizepicks.com/images/players/soccer/e83ula4wockmc2xid7185kcq2.webp', 'Jude Bellingham', False, 82, '3372'],
+        #            ['197873', 'Jyllissa Harris', 'Defender', 'https://static.prizepicks.com/images/teams/NWSL/Houston_Dash.webp', 'Jyllissa Harris', False, 82, '4156'],
+        #            ['171076', 'JÃ¸rgen Strand Larsen', 'Attacker', 'https://static.prizepicks.com/images/manual/JÃ¸rgen Strand Larsen.png', 'JÃ¸rgen Strand Larsen', False, 82, '3356'],
+        #            ['215896', 'Courtney Petersen', 'Defender', 'https://static.prizepicks.com/images/teams/NWSL/Racing_Louisville.webp', 'Courtney Petersen', False, 82, '4160']
+        #            ]
+        #    
+        #    scrape_id - the id of the scrape that this data is coming from.
+    
+        insert_list = list()
+        change_list = list()
+        update_list = list()
+        timeseries_list = list()
+        mapping = list()
+        dts = list()
+        translated_headers = list()
+        table = 'projection'
+        id_index = headers.index("id")
+
+        #Pull into memory any data which may already be in the db to compare/update against
+        existing_data = self._get_existing_data(data, table, id_index)
+
+        #Call function to map the incoming data to the order that the db requires
+        mapping, dts, translated_headers = self._create_col_ordering(headers, table)
+        
+        #Create dictionary where the key is the row id and the value is the row of existing dat in the mysql db. This will be used to 
+        #check for if any rows need to be updated
         data_dict = dict()
         for row in existing_data:
             data_dict[row[id_index]] = row
@@ -237,7 +260,7 @@ class prizepicks_db:
         #This loops through each of the incoming data rows to determine what changes need to be made in the db. Any changes that need to be made, the necessary 
         #data to do that is added to the insert, update, or timeseries list as apropriate. These lists are then executed in batches into the db to make it fast
         for incoming_row in data:
-                            
+            
             #Map the data from the incoming row into a temp row so that it can be compared against whatever is already in the db in the correct order/format
             temp_row = list()
             row_id = incoming_row[id_index]
@@ -250,7 +273,7 @@ class prizepicks_db:
                 else:
                     temp_row.append(None)
 
-            #Converts any datetimes to datetime objects of the same format to their comparison is valid
+            #Converts any datetimes to datetime objects of the same format so their comparison is valid
             for i in dts:
                 if isinstance(temp_row[i], str):
                     my_dt = datetime.fromisoformat(temp_row[i])
@@ -259,48 +282,33 @@ class prizepicks_db:
 
             #------Beginning comparison and adding necessary data to correct lists to make updates------
 
-            #If projection is not already in the DB, then add it
+            #If there is nothing already in the DB matching the data id, insert the values straight into the DB
             existing_row = data_dict.get(row_id)
             if existing_row is None:
-                '''---If there is nothing already in the DB matching the data id, insert the values straight into the DB---'''
                 insert_list.append(temp_row)
                 
             #If the projection is already in the DB, then check to see if anything has changed. If a value has changed, then log it in the 
             #'projection_change_history' table and update the 'projection' table to reflect the new values
             else:
-                #Go through each index of incoming version of the row and compare to the existing one
-                changed = False
-                for i in range(num_cols):
-                    #If a value has changed, then add it to the change list and mark that a change has been made. This change will be logged in the appropriate change_history table
-                    if existing_row[i] != temp_row[i]:
-                        #print(f"Existing val {existing_row[i]} != {temp_row[i]} from incoming. Column: {headers[mapping[i]]}")
-                        changed = True
-                        change_list.append([row_id, translated_headers[mapping[i]], existing_row[i], scrape_id])
+                #Call function to check equality of the incoming vs existing row and return list of any changes
+                changes = self._create_changes(num_cols, mapping, translated_headers, existing_row, temp_row, row_id, scrape_id, change_list)
 
-                #If a change is made then the latest version of the row must be updated to reflect that change in the base db table
-                if changed:
+                #If changes are made then add that to the correct data structures to be put in the right places
+                if len(changes) > 0:
+                    change_list += changes
                     update_list.append(temp_row)
 
-            #If the incomming row has timeseries data, then this adds it as long as the timeseries value is not null. This must look at the original 
-            #'headers' list since the timeseries headers are removed from 'mysql_headers'. These values are handled differently from columns with values that
-            #are not expected to change very often
-            for timeseries in self.PROJECTION_TIME_SERIES:
-                #Not all timeseries data is always guarunteed, so this check to make sure that the timeseries data actually exists before trying to add anything. 
-                #If it does not exist then just skip it, that's ok.
-                try:
-                    ts_index = headers.index(timeseries)
-                except ValueError:
-                    input(f"Cant find {timeseries} in headers list. Is that ok?")
-                    continue
-                if  incoming_row[ts_index] is not None:
-                    timeseries_list.append([row_id, timeseries, incoming_row[ts_index], scrape_id])
+            #Call function to add any timeseries data to the timeseries list if it exists in the incoming row
+            timeseries_list += self._add_timeseries(headers, incoming_row, row_id, scrape_id)
+
         
         #Function which makes batch requests for the 3 tables to be updated
         self._add_new_lines(insert_list, change_list, update_list, table, timeseries_list)
             
     def _add_new_lines(self, my_data_list, data_history_list, update_list, table_name, timeseries_list):
-        #Function takes various lists of data ll of which needs to be updated in the db, and updates the db with that data
+        #Function takes various lists of data all of which needs to be updated in the db, and updates the db with that data
 
+        #Goes through and updates the rows in the target table which have had values changed
         if len(update_list) > 0:
             #To update the existing projection rows in the db, they are first deleted and then replaced by the updated rows
 
@@ -319,6 +327,7 @@ class prizepicks_db:
             except mysql.connector.Error as sql_err:
                 self._report_sql_error(sql_err, delete_query, update_list)
 
+        #Goes through and add in all the latest row data to the target table
         if len(my_data_list) > 0:
             #All of the data which needs to be inserted into the projection table is manged here
 
@@ -335,9 +344,8 @@ class prizepicks_db:
             except mysql.connector.Error as sql_err:
                 self._report_sql_error(sql_err, my_data_write_query, my_data_list)
 
-                
+        #All of the changes to the projections are tracked. This block adds the changed attributes and values into the table tracking the history of the changes
         if len(data_history_list) > 0:
-            #All of the changes to the projections are tracked. This block adds the changed attributes and values into the table tracking the history of the changes
             
             #Create the SQL query to format and insert the data into the db
             history_alias_list = str()
@@ -352,11 +360,10 @@ class prizepicks_db:
             except mysql.connector.Error as sql_err:
                 self._report_sql_error(sql_err, history_write_query, data_history_list)
 
-
+        #Some of the projection attributes are expected to change all the time. Rather than keep changing the whole projection record every time, these
+        #values are tracked/stored in this timeseries table and the latest values are alwyas inserted in here. This does not check if that value has changed
+        #at all, it just adds it no matter what
         if len(timeseries_list) > 0:
-            #Some of the projection attributes are expected to change all the time. Rather than keep changing the whole projection record every time, these
-            #values are tracked/stored in this timeseries table and the latest values are alwyas inserted in here. This does not check if that value has changed
-            #at all, it just adds it no matter what
 
             #Create the SQL query to format and insert the data into the db
             ts_alias_string = str()
@@ -370,7 +377,6 @@ class prizepicks_db:
                 print(f"Added {len(timeseries_list)} rows to {table_name}_timeseries")
             except mysql.connector.Error as sql_err:
                 self._report_sql_error(sql_err, ts_write_query, timeseries_list)
-
 
         return True
     
@@ -416,4 +422,4 @@ class prizepicks_db:
         self._sql_conn.commit()
         scrape_id = self.read_query('SELECT LAST_INSERT_ID();')[0][0]
         return scrape_id
-
+    

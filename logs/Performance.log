@@ -1688,3 +1688,10 @@ _list_to_data_table:0.6760960999999996
 parse_proj_json:0.1455191999999954
 parse_webpage:0.5277068999999983
 _list_to_data_table:0.510238699999995
+-------NEW RUN STARTING-------
+parse_proj_json:0.18811559999999972
+parse_webpage:0.6968080000000008
+-------NEW RUN STARTING-------
+parse_proj_json:0.17707489999999915
+parse_webpage:0.6256507999999998
+_list_to_projection_table:0.8399400999999997
