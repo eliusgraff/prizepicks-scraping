@@ -1,6 +1,5 @@
 import nodriver as uc
 from datetime import datetime, timezone
-from prizepicks_db import create_scrape_id
 
 known_leagues = {
     "NFL":9,
@@ -26,7 +25,7 @@ async def scrape(api_request):
     await wp.close()
     return html_content
 
-def get_prizepicks(league):
+def get_prizepicks(league, ppdb):
     '''
     Function which takes in a league acronym as a str. Function makes sure the league is a known one.
     If not, returns 1.
@@ -47,7 +46,7 @@ def get_prizepicks(league):
 
     print(f"Scraping from endpoint: {api_call}")
     webpage = uc.loop().run_until_complete(scrape(api_call))
-    scrape_id = create_scrape_id(1, league_num, datetime.now(timezone.utc).replace(tzinfo=None))
+    scrape_id = ppdb.create_scrape_id(1, league_num, datetime.now(timezone.utc).replace(tzinfo=None))
     return (webpage, scrape_id)
 
 

@@ -2,10 +2,6 @@ from bs4 import BeautifulSoup
 import json
 from parsed_data import parsed_data
 from my_logs import log_perf
-from prizepicks_db import get_cols
-
-#Full list of reserved words can be found here: https://dev.mysql.com/doc/refman/8.4/en/keywords.html
-#This just covers the ones used in the mySQL db
 
 def valid_wp(wp):
     '''
@@ -52,7 +48,7 @@ def discard_html(webpage):
     return json.loads(soup.find('pre').text)
 
 @log_perf
-def parse_webpage(webpage):
+def parse_webpage(webpage, pp_db):
     '''
     This function takes in an HTML webpage from prizepicks API request, strips the HTML from it and just goes through each of the tags in the json
     about the bets and stats. This function will also facilitate sending the parsed data to the local mySQL database.
@@ -71,14 +67,7 @@ def parse_webpage(webpage):
     except json.decoder.JSONDecodeError as e:
         return 1002
     
-    parsed_tags = ["projection", "duration", "league", "league_data", "lfg_ignored_leagues", "new_player", "projection_type", "stat_average","stat_type", "team"]
-    col_orders = get_cols(parsed_tags)
-
-    '''for col, vals in col_orders.items():
-        print(col)
-        for val in vals:
-            print(f"\t{val}")
-    input("Check to make sure that column names are same as what is parsed from prizepicks API")'''
+    col_orders = pp_db.get_data_to_parse()
     proj_order = col_orders['projection']
     '''---Define large data structure where all the parsed data will reside until it is sent to mySQL---'''
     data_values = parse_proj_json(json_data, proj_order)

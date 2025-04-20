@@ -64,10 +64,10 @@ def hour_run():
 
     for iter in range(my_range):
         print(f"-------API call #{iter}/{my_range} at time {datetime.datetime.now()}--------")
-        scrape_data = get_prizepicks("NBA")
+        scrape_data = get_prizepicks("NBA", pp_db)
         webpage = scrape_data[0]
         scrape_id = scrape_data[1]
-        wp_data = my_parser.parse_webpage(webpage)
+        wp_data = my_parser.parse_webpage(webpage, pp_db)
         
         #logging errors posted from parsing fucntion
         if isinstance(wp_data, int):
