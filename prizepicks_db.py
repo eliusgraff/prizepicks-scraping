@@ -39,6 +39,11 @@ class prizepicks_db:
     }
     _MY_TABLES = [
         'projection',
+        'team',
+        'new_player',
+        'stat_type',
+        'league',
+        'game'
     ]
     _sql_conn = None
     _sql_cursor = None
@@ -67,6 +72,7 @@ class prizepicks_db:
 
             #timeseries data is stored in a special table for values expected to change often, so this 
             #gets the names of those columns
+            '''---All the timeseries data should be stored in a dict somewhere and we should check against that to decide if we need to pull in timeseries data or not---'''
             ts_list = self.read_query(f"SELECT DISTINCT name FROM {table_name}_timeseries;")
             ts_names = [each[0] for each in ts_list]
 

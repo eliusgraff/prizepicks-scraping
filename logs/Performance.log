@@ -1695,3 +1695,19 @@ parse_webpage:0.6968080000000008
 parse_proj_json:0.17707489999999915
 parse_webpage:0.6256507999999998
 _list_to_projection_table:0.8399400999999997
+-------NEW RUN STARTING-------
+-------NEW RUN STARTING-------
+parse_proj_json:0.07389230000000069
+parse_webpage:27.7302187
+_list_to_projection_table:0.41904079999999766
+-------NEW RUN STARTING-------
+parse_proj_json:0.09816850000000032
+-------NEW RUN STARTING-------
+parse_webpage:0.03795690000000018
+parse_webpage:0.20299630000000235
+-------NEW RUN STARTING-------
+parse_proj_json:0.15828089999999984
+-------NEW RUN STARTING-------
+parse_proj_json:0.07333870000000076
+-------NEW RUN STARTING-------
+parse_proj_json:0.07393580000000011
