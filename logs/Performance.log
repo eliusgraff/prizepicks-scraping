@@ -1711,3 +1711,54 @@ parse_proj_json:0.15828089999999984
 parse_proj_json:0.07333870000000076
 -------NEW RUN STARTING-------
 parse_proj_json:0.07393580000000011
+-------NEW RUN STARTING-------
+parse_proj_json:0.0507774999999997
+-------NEW RUN STARTING-------
+-------NEW RUN STARTING-------
+parse_proj_json:0.047809299999999944
+-------NEW RUN STARTING-------
+parse_proj_json:0.08571580000000001
+-------NEW RUN STARTING-------
+parse_proj_json:0.09997969999999956
+-------NEW RUN STARTING-------
+parse_proj_json:0.05892419999999987
+parse_included_data:0.19280079999999966
+parse_webpage:0.5052852000000003
+_send_to_projection_table:0.2716246999999994
+-------NEW RUN STARTING-------
+parse_proj_json:0.09433500000000006
+parse_included_data:1.2248578000000006
+-------NEW RUN STARTING-------
+parse_proj_json:0.09693459999999998
+parse_included_data:0.3334383999999999
+parse_webpage:0.6942261000000003
+_send_to_projection_table:0.29901209999999967
+-------NEW RUN STARTING-------
+parse_proj_json:0.07359569999999938
+parse_included_data:0.34887779999999946
+parse_webpage:0.7180487000000002
+_send_to_projection_table:0.2718195999999997
+-------NEW RUN STARTING-------
+parse_proj_json:0.1611313000000001
+parse_included_data:0.5558451999999994
+parse_webpage:1.0983539000000002
+_send_to_projection_table:0.5756380999999999
+-------NEW RUN STARTING-------
+parse_proj_json:0.20870199999999972
+parse_included_data:0.42358899999999977
+parse_webpage:0.9703873999999995
+_send_to_projection_table:0.3462189000000002
+-------NEW RUN STARTING-------
+parse_proj_json:0.058918600000000154
+parse_included_data:0.1773674999999999
+parse_webpage:0.5775728999999998
+_send_to_projection_table:0.26844429999999964
+parse_proj_json:0.12774779999999453
+parse_included_data:0.4062772999999993
+parse_webpage:0.6539280000000005
+_send_to_projection_table:0.44773039999999753
+-------NEW RUN STARTING-------
+parse_proj_json:0.08791469999999979
+parse_included_data:0.5444778999999995
+parse_webpage:0.7190577999999999
+_send_to_projection_table:0.2274383999999996
