@@ -1762,3 +1762,48 @@ parse_proj_json:0.08791469999999979
 parse_included_data:0.5444778999999995
 parse_webpage:0.7190577999999999
 _send_to_projection_table:0.2274383999999996
+-------NEW RUN STARTING-------
+parse_proj_json:0.1111405999999997
+parse_included_data:0.00040949999999995157
+parse_webpage:0.36851930000000044
+_send_to_projection_table:0.4095464
+-------NEW RUN STARTING-------
+parse_proj_json:0.05357900000000004
+parse_included_data:0.0004638999999997395
+parse_webpage:0.3212023000000004
+_send_to_projection_table:0.3000202999999999
+-------NEW RUN STARTING-------
+parse_proj_json:0.10177639999999988
+parse_included_data:0.001197600000000243
+parse_webpage:0.3738866999999999
+_send_to_projection_table:0.35160930000000024
+-------NEW RUN STARTING-------
+parse_proj_json:0.07779589999999992
+parse_included_data:0.000884800000000574
+parse_webpage:0.30125020000000013
+_send_to_projection_table:0.25901149999999973
+-------NEW RUN STARTING-------
+parse_proj_json:0.14549650000000014
+parse_included_data:0.0007780000000003895
+parse_webpage:0.4566699000000001
+_send_to_projection_table:0.3503292
+-------NEW RUN STARTING-------
+parse_proj_json:0.05987650000000011
+parse_included_data:0.0008735999999998079
+parse_webpage:0.33952399999999994
+_send_to_projection_table:0.30223310000000003
+-------NEW RUN STARTING-------
+parse_proj_json:0.06479290000000004
+parse_included_data:0.0009245999999998311
+parse_webpage:0.30967920000000015
+_send_to_projection_table:0.2577123999999995
+-------NEW RUN STARTING-------
+parse_proj_json:0.05937160000000041
+parse_included_data:0.0008702000000004873
+parse_webpage:0.33389800000000047
+_send_to_projection_table:0.24558109999999989
+-------NEW RUN STARTING-------
+parse_proj_json:0.15206009999999992
+parse_included_data:0.0008814999999997575
+parse_webpage:0.45808930000000014
+_send_to_projection_table:0.36769009999999946

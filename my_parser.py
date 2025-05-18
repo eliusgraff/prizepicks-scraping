@@ -169,10 +169,6 @@ def parse_included_data(included_data, col_orders):
         #sql DB
         my_tag = dict()
 
-        print(f"Parsing '{tag['type']}' tag:")
-        print(tag)
-        print(f"------Parsing------")
-
         for col in col_orders[tag['type']]:
             my_tag[col] = tag['attributes'].get(col)
 
