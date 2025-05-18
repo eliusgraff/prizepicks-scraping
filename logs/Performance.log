@@ -1807,3 +1807,12 @@ parse_proj_json:0.15206009999999992
 parse_included_data:0.0008814999999997575
 parse_webpage:0.45808930000000014
 _send_to_projection_table:0.36769009999999946
+-------NEW RUN STARTING-------
+parse_proj_json:0.07497729999999958
+parse_included_data:0.0010319000000000855
+parse_webpage:0.33583560000000023
+_send_to_projection_table:0.28811569999999964
+parse_proj_json:0.08157339999999635
+parse_included_data:0.00022209999999489582
+parse_webpage:0.16047629999999913
+_send_to_projection_table:0.349936900000003
