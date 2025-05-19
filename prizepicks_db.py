@@ -33,12 +33,26 @@ class prizepicks_db:
         "trending_count",
         "rank"
     }
+    INCLUDED_TIME_SERIES = {
+        'team':[],
+        'new_player':[],
+        'stat_type':[],
+        'league':[],
+        'game':[],
+        'projection_type':[]
+    }
     ENDPOINT_ID = {
         'projection':1,
         'game':2
     }
     _MY_TABLES = [
         'projection',
+        'team',
+        'new_player',
+        'stat_type',
+        'league',
+        'game',
+        'projection_type'
     ]
     _sql_conn = None
     _sql_cursor = None
@@ -67,6 +81,7 @@ class prizepicks_db:
 
             #timeseries data is stored in a special table for values expected to change often, so this 
             #gets the names of those columns
+            '''---All the timeseries data should be stored in a dict somewhere and we should check against that to decide if we need to pull in timeseries data or not---'''
             ts_list = self.read_query(f"SELECT DISTINCT name FROM {table_name}_timeseries;")
             ts_names = [each[0] for each in ts_list]
 
@@ -74,7 +89,7 @@ class prizepicks_db:
             self._external_data_names[table_name] = data_names + ts_names
 
     def get_data_to_parse(self):
-        #Don't want caller messing with the member variabell directly, so this fuctions allows a caller to a
+        #Don't want caller messing with the member variable directly, so this fuctions allows a caller to a
         #copy of those names
         return self._external_data_names.copy()
 
@@ -135,11 +150,11 @@ class prizepicks_db:
         assert isinstance(parsed_data_obj, parsed_data)
 
         #Sends values parsed into the projection table
-        self._list_to_projection_table(parsed_data_obj.data_order, parsed_data_obj.data_values, scrape_id)
-
+        self._send_to_projection_table(parsed_data_obj.data_order, parsed_data_obj.data_values, scrape_id)
+        self._send_included_data(parsed_data_obj.included_tag_values, scrape_id)
+        
         #Commits changes made during above functions
         self._sql_conn.commit()
-
         return True
     
     def _create_col_ordering(self, headers, table): 
@@ -219,7 +234,7 @@ class prizepicks_db:
         return change_list
     
     @log_perf
-    def _list_to_projection_table( self, headers, data, scrape_id):
+    def _send_to_projection_table( self, headers, data, scrape_id):
         #Function which will send passed in data into the 'data' table of the local mySQL database
         #Argumetns are:
         #    headers - a list of names of the columns of the target table in order for how they apprear in the data
@@ -305,7 +320,7 @@ class prizepicks_db:
         #Function which makes batch requests for the 3 tables to be updated
         self._add_new_lines(insert_list, change_list, update_list, table, timeseries_list)
             
-    def _add_new_lines(self, my_data_list, data_history_list, update_list, table_name, timeseries_list):
+    def _add_new_lines(self, my_data_list, data_history_list, update_list, table_name, timeseries_list, row_id_index = 1):
         #Function takes various lists of data all of which needs to be updated in the db, and updates the db with that data
 
         #Goes through and updates the rows in the target table which have had values changed
@@ -313,9 +328,8 @@ class prizepicks_db:
             #To update the existing projection rows in the db, they are first deleted and then replaced by the updated rows
 
             #Goes through the update list and grabs the ids of the rows that need to be deleted
-            delete_ids = list()
-            for row in update_list:
-                delete_ids.append(row[1])
+            '''---If this never trips, then just leave in the list comprehension---'''
+            delete_ids = [row[row_id_index] for row in update_list]
             
             #add the updated row to my_data_list so that the latest data is inserted into the db
             my_data_list += update_list
@@ -423,3 +437,80 @@ class prizepicks_db:
         scrape_id = self.read_query('SELECT LAST_INSERT_ID();')[0][0]
         return scrape_id
     
+    def _send_included_data(self, included_data_dict, scrape_id):
+        #Function to send the included data to the db. Since included data spans multiple types and tables, this
+        #needs to go through each of the items in the included_data_dict and put the data into the correct table.
+        #Each key of the dictionary is the table name that the data is going into, and the values are a single 
+        #list of dicts where each dict key is the column name and the value is the value for that column in a given 
+        #row.
+        for table, data in included_data_dict.items():
+            #Loop through each of the tables in the included_data_dict and send the data to the db
+            insert_list = list()
+            change_list = list()
+            update_list = list()
+            timeseries_list = list()
+            dt_indexes = list()
+            col_order = list()
+
+            #get order of columns for the given table and keep track of any datetimes (they need special handling)
+            self._sql_cursor.execute(f"SHOW COLUMNS FROM {table};")
+            col_info = self._sql_cursor.fetchall()
+            for i, col in enumerate(col_info):
+                col_order.append(col[0])
+                if col[1] == "datetime":
+                    dt_indexes.append(i)
+
+            id_index = col_order.index('id') #finding this just in case it changes in the future, it should always be at [0] though            
+
+            #pull in existing data for the db into a dict to compare against and see if any changes need to be made to the db
+            incoming_ids = [row['id'] for row in data]
+            if len(incoming_ids) == 1:
+                incoming_ids = f"({incoming_ids[0]})"
+            else:
+                incoming_ids = tuple(incoming_ids)
+            existing_data = self.read_query(f"SELECT * FROM {table} WHERE id IN {incoming_ids};")
+            existing_dict = dict()
+            for row in existing_data:
+                existing_dict[row[id_index]] = row
+
+            #Go through each of the rows in the incoming data and check to see if any changes need to be made
+            for incoming_data in data:
+
+                #turn the dict into a list of values in the correct order to be intput to the db
+                row_list = [incoming_data[col_name] for col_name in col_order]
+                row_list[id_index] = int(row_list[id_index])
+
+                #Convert any datetimes to datetime objects of the same format so their comparison is valid
+                for i in dt_indexes:
+                    if isinstance(row_list[i], str):
+                        my_dt = datetime.fromisoformat(row_list[i])
+                        utc_dt = my_dt.astimezone(timezone.utc)
+                        row_list[i] = utc_dt.replace(tzinfo=None)
+
+                existing_row = existing_dict.get(row_list[id_index])
+
+                #If the row is new, then it can be added straight into the db insert list
+                if existing_row is None:
+                    insert_list.append(row_list)
+                
+                #If row is already in db, then check to see if any changes need to be made
+                else:
+                    change = False
+
+                    #make any necessary entries to the correlary change_history table
+                    for i in range(len(col_order)):
+                        if row_list[i] != existing_row[i]:
+                            if str(row_list[i]) != str(existing_row[i]):
+                                change = True
+                                change_list.append([incoming_data['id'], col_order[i], existing_row[i], scrape_id])
+                    
+                    #Adding the new row to the update list so the old data can be overwritten with the new data for this row
+                    if change:
+                        update_list.append(row_list)
+
+                #insert timeseries data into correlary timeseries table
+                for ts_name in self.INCLUDED_TIME_SERIES[table]:
+                    if incoming_data[ts_name] is not None:
+                        timeseries_list.append([incoming_data['id'], ts_name, incoming_data[ts_name], scrape_id])   
+
+            self._add_new_lines(insert_list, change_list, update_list, table, timeseries_list, id_index)

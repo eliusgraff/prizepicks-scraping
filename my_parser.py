@@ -71,22 +71,9 @@ def parse_webpage(webpage, pp_db):
     proj_order = col_orders['projection']
     '''---Define large data structure where all the parsed data will reside until it is sent to mySQL---'''
     data_values = parse_proj_json(json_data, proj_order)
+    includes = parse_included_data(json_data.get("included"), col_orders)
 
-    return parsed_data(col_orders['projection'], data_values, None, None)    
-    #Will need to add support for the 'included' fields later once I have the updated design for projections
-    included_tag_orders = {k: v for k, v in col_orders.items() if k != 'projection'}
-
-    '''---After the 'data' section of the json, it goes to the 'included' tag which can contain many different tags---'''
-    included_tag_values = parse_all_includes(json_data, included_tag_orders)
- 
-    my_tot = 0
-    for k,v in included_tag_values.items():
-        '''---checking that all of the rows are the correct length before sending them to sql---'''
-        for row in v: assert len(row) == len(included_tag_orders[k])
-        '''---Counting total number of entries parsed---'''
-        my_tot+=len(v)
-
-    return parsed_data(col_orders['projection'], data_values, included_tag_orders, included_tag_values)
+    return parsed_data(col_orders['projection'], data_values, includes)
 
 def parse_proj_data(data_item, col_order):
     '''
@@ -140,6 +127,7 @@ def parse_proj_data(data_item, col_order):
 
 @log_perf
 def parse_proj_json(json_data, order):
+
     data_values = []
     #print("Parsing 'projection' tags...")
     for item in json_data['data']:
@@ -150,3 +138,68 @@ def parse_proj_json(json_data, order):
 
     print(f"Parsed 'projections' with {len(data_values)} entries")
     return data_values
+
+@log_perf
+def parse_included_data(included_data, col_orders):
+    '''
+    When projection API is called, in addition to all the projection data, there is also data shared about stat types, stat averages, player, teams and leagues
+    in the tag called 'included'. This data defines what the projection is (ie rushing vs passing yards), who the player is, what team they are on and so forth.
+    The more data which can be collected the more predictions can be made based on the outcomes of the projections.
+    '''
+    parsed_data = dict()
+    skipped = {'stat_average', 'duration'}
+    for table_name in col_orders:
+        parsed_data[table_name] = []
+    
+    #since projection is handled in a different function, we need to remove parsing it from this one
+    del parsed_data['projection']
+
+    #loop through each tag in the included data for parsing
+    for tag in included_data:
+        #If an unexpected tag is found, notify the user once per type and just skip them
+        '''---Perhaps this could be added to logging somewhere---'''
+        if tag['type'] not in col_orders:
+            if tag['type'] not in skipped:
+                input(f"!!!WARNING!!!\nTag '{tag['type']}' not in col_orders. Skipping...")
+                skipped.add(tag['type'])
+            continue
+        
+        #All of the included tags seem to follow the same/similar format, so by default they will
+        #just have the id taken and then look through the 'attributes' for the data that can be added
+        #sql DB
+        my_tag = dict()
+
+        for col in col_orders[tag['type']]:
+            my_tag[col] = tag['attributes'].get(col)
+
+        #new_player and game tags have some data which exists outside of the attributes tags, so these code blocks get that data and pull it into the dict
+        if tag['type'] == "new_player":
+            try:
+                my_tag['team_id'] = tag['relationships']['team_data']['data']['id']
+            except KeyError:
+                print(f"Could not find team_id for player tag {tag['id']}. Unexpected but not critical...")
+                my_tag['team_id'] = None
+            try:
+                my_tag['league_id'] = tag['relationships']['league']['data']['id']
+            except KeyError:
+                print(f"Could not find league_id for player tag {tag['id']}. Unexpected but not critical...")
+                my_tag['league_id'] = None
+
+        elif tag['type'] == "game":
+            try:
+                my_tag['home'] = tag['relationships']['home_team_data']['data']['id']
+            except KeyError:
+                print(f"Could not find home team id for game tag {tag['id']}. Bad but not critical, should be investigated...")
+                '''---This should log a soft error somewhere---'''
+                my_tag['home'] = None
+            try:
+                my_tag['away'] = tag['relationships']['away_team_data']['data']['id']
+            except KeyError:
+                print(f"Could not find away team id for game tag {tag['id']}. Bad but not critical, should be investigated...")
+                '''---This should log a soft error somewhere---'''
+                my_tag['away'] = None
+
+        my_tag['id'] = tag['id']
+        parsed_data[tag['type']].append(my_tag)
+
+    return parsed_data
