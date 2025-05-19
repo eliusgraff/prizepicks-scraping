@@ -445,7 +445,6 @@ class prizepicks_db:
         #row.
         for table, data in included_data_dict.items():
             #Loop through each of the tables in the included_data_dict and send the data to the db
-            print(f"Sending data to {table} table")
             insert_list = list()
             change_list = list()
             update_list = list()
@@ -474,9 +473,6 @@ class prizepicks_db:
             for row in existing_data:
                 existing_dict[row[id_index]] = row
 
-            for k,v in existing_dict.items():
-                print(f"Existing data: {k} - {v}")
-
             #Go through each of the rows in the incoming data and check to see if any changes need to be made
             for incoming_data in data:
 
@@ -491,9 +487,7 @@ class prizepicks_db:
                         utc_dt = my_dt.astimezone(timezone.utc)
                         row_list[i] = utc_dt.replace(tzinfo=None)
 
-                print(f"Looking for: {row_list[id_index]}")
                 existing_row = existing_dict.get(row_list[id_index])
-                print(f"Comparing\nIncoming row:\n{row_list}\nExisting row:\n{existing_row}")
 
                 #If the row is new, then it can be added straight into the db insert list
                 if existing_row is None:
@@ -502,25 +496,21 @@ class prizepicks_db:
                 #If row is already in db, then check to see if any changes need to be made
                 else:
                     change = False
-                    print(f"Incoming data: {row_list}")
-                    print(f"Existing data: {existing_row}")
 
                     #make any necessary entries to the correlary change_history table
                     for i in range(len(col_order)):
                         if row_list[i] != existing_row[i]:
                             if str(row_list[i]) != str(existing_row[i]):
-                                input(f"Incoming {row_list[i]} != Existing {existing_row[i]}")
                                 change = True
                                 change_list.append([incoming_data['id'], col_order[i], existing_row[i], scrape_id])
                     
                     #Adding the new row to the update list so the old data can be overwritten with the new data for this row
                     if change:
                         update_list.append(row_list)
-                    else:
-                        print(f"No changes found")
+
                 #insert timeseries data into correlary timeseries table
                 for ts_name in self.INCLUDED_TIME_SERIES[table]:
                     if incoming_data[ts_name] is not None:
                         timeseries_list.append([incoming_data['id'], ts_name, incoming_data[ts_name], scrape_id])   
 
-            self._add_new_lines(insert_list, change_list, update_list, table, timeseries_list, id_index)      
+            self._add_new_lines(insert_list, change_list, update_list, table, timeseries_list, id_index)
