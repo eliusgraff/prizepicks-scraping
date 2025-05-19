@@ -1,5 +1,6 @@
 import nodriver as uc
 from datetime import datetime, timezone
+import time
 
 known_leagues = {
     "NFL":9,
@@ -19,6 +20,7 @@ async def scrape(api_request):
     browser = await uc.start(my_config)
     '''---Make request to prizepicks api---'''
     wp = await browser.get(api_request)
+    time.sleep(1)
     '''---get the full-page HTML---'''
     html_content = await wp.get_content()
     '''---close the page---'''
