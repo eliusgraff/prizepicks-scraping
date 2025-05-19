@@ -2498,3 +2498,12 @@ parse_proj_json:0.11189890000241576
 parse_included_data:0.0003679000001284294
 parse_webpage:0.3155323999999382
 _send_to_projection_table:0.2720491000000038
+-------NEW RUN STARTING-------
+parse_proj_json:0.11363529999999944
+parse_included_data:0.00036750000000029814
+parse_webpage:0.3808120000000006
+_send_to_projection_table:0.34107719999999997
+parse_proj_json:0.062348800000002313
+parse_included_data:0.00038629999999528764
+parse_webpage:0.32445479999999804
+_send_to_projection_table:0.1966547000000034
