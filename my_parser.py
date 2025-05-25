@@ -1,53 +1,6 @@
 from parsed_data import parsed_data
 from my_logs import log_perf
 
-#not used in current implementation, but may be useful in the future
-def valid_wp(wp):
-    raise NotImplementedError("valid_wp should not need to be called")
-    '''
-    Function to validate that the webpage is valid and ok to begin parsing before doing so. The function looks for a few things:
-    1. Check if the wp passed in can even be parsed as html by beautifulsoup
-    2. Looks for 'pre' tag since that is wher the json data is stored
-    3. Skips one tag (where the json data should be) and checks to see if the tag following the json data is  'json-formatter-container'.
-
-    Arguement:
-        wp - variable containing data from the the prizepicks API call
-
-    Funtion returns beautifulsoup instance if the wp looks parsable and false if not.
-    '''
-    try:
-        to_validate = BeautifulSoup(wp, "html.parser")
-
-    except:
-        return False
-
-    pre = to_validate.find("pre")
-
-    if pre is None or pre.name != "pre":
-        print("Expected to be 'pre' tag")
-        return False
-    json_data = pre.next_element
-    div = json_data.next_element
-    if div['class'][0] != "json-formatter-container":
-        print("Expected to be json-formatter class")
-        return False
-    
-    return to_validate
-
-def discard_html(webpage):
-    raise NotImplementedError("discard_html should not need to be called")
-    '''
-    Function to get rid of the HTML around the json data that we are interested in parsing.
-    Will return false if webpage is not in expected format and fails check for valid_wp.
-
-    Returns dict of the json data.
-    '''
-    soup = valid_wp(webpage)
-    if soup is False:
-        return False
-    
-    return json.loads(soup.find('pre').text)
-
 @log_perf
 def parse_webpage(json_data, pp_db):
     '''
@@ -196,3 +149,52 @@ def parse_included_data(included_data, col_orders):
         parsed_data[tag['type']].append(my_tag)
 
     return parsed_data
+
+#not used in current implementation, but may be useful in the future
+def valid_wp(wp):
+    raise NotImplementedError("valid_wp should not need to be called")
+    '''
+    Function to validate that the webpage is valid and ok to begin parsing before doing so. The function looks for a few things:
+    1. Check if the wp passed in can even be parsed as html by beautifulsoup
+    2. Looks for 'pre' tag since that is wher the json data is stored
+    3. Skips one tag (where the json data should be) and checks to see if the tag following the json data is  'json-formatter-container'.
+
+    Arguement:
+        wp - variable containing data from the the prizepicks API call
+
+    Funtion returns beautifulsoup instance if the wp looks parsable and false if not.
+    '''
+    try:
+        to_validate = BeautifulSoup(wp, "html.parser")
+
+    except:
+        return False
+
+    pre = to_validate.find("pre")
+
+    if pre is None or pre.name != "pre":
+        print("Expected to be 'pre' tag")
+        return False
+    json_data = pre.next_element
+    div = json_data.next_element
+    if div['class'][0] != "json-formatter-container":
+        print("Expected to be json-formatter class")
+        return False
+    
+    return to_validate
+
+#not used in current implementation, but may be useful in the future
+def discard_html(webpage):
+    raise NotImplementedError("discard_html should not need to be called")
+    '''
+    Function to get rid of the HTML around the json data that we are interested in parsing.
+    Will return false if webpage is not in expected format and fails check for valid_wp.
+
+    Returns dict of the json data.
+    '''
+    soup = valid_wp(webpage)
+    if soup is False:
+        return False
+    
+    return json.loads(soup.find('pre').text)
+

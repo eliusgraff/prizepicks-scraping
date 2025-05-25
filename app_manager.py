@@ -1,5 +1,5 @@
 import os
-from web_scraper import get_prizepicks, new_get_prizepicks
+from web_scraper import get_prizepicks
 import my_parser
 from prizepicks_db import prizepicks_db
 import my_logs
