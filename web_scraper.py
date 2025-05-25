@@ -1,6 +1,7 @@
 import nodriver as uc
 from datetime import datetime, timezone
 import time
+from curl_cffi import requests
 
 known_leagues = {
     "NFL":9,
@@ -35,7 +36,6 @@ def get_prizepicks(league, ppdb):
     Once league is validated it makes a call to the prizepicks api to get the latest data for that league.
     Any problems here, it will return 2.
     '''
-
     league_num = known_leagues.get(league.upper())
     if league_num is None:
         return 1
@@ -47,8 +47,34 @@ def get_prizepicks(league, ppdb):
     api_call =  f"https://api.prizepicks.com/projections?league_id={league_num}&per_page={page_num}&single_stat={single_stat}&game_mode={game_mode}"
 
     print(f"Scraping from endpoint: {api_call}")
-    webpage = uc.loop().run_until_complete(scrape(api_call))
+    webpage = requests.get(api_call, impersonate='chrome110')
     scrape_id = ppdb.create_scrape_id(1, league_num, datetime.now(timezone.utc).replace(tzinfo=None))
-    return (webpage, scrape_id)
+    return (webpage.json(), scrape_id)
+
+def new_get_prizepicks(league, ppdb):
+    '''
+    Function which takes in a league acronym as a str. Function makes sure the league is a known one.
+    If not, returns 1.
+
+    Once league is validated it makes a call to the prizepicks api to get the latest data for that league.
+    Any problems here, it will return 2.
+    '''
+
+    league_num = known_leagues.get(league.upper())
+    if league_num is None:
+        return 1
+    
+    '''---Setting up API endpoint str and making that request---'''
+    page_num = 20
+    single_stat = "true"
+    game_mode = "pickem"
+    api_call =  f"https://api.prizepicks.com/projections?league_id={league_num}&per_page={page_num}&single_stat={single_stat}&game_mode={game_mode}"
+
+    response = requests.get(api_call, impersonate='chrome110')
+    if response.status_code != 200:
+        print(f"Error fetching data: {response.status_code}")
+        return 2
+
+    return response.json()
 
 

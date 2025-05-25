@@ -1,3 +1,5 @@
+CREATE DATABASE  IF NOT EXISTS `prizepicks` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci */ /*!80016 DEFAULT ENCRYPTION='N' */;
+USE `prizepicks`;
 -- MySQL dump 10.13  Distrib 8.0.33, for Win64 (x86_64)
 --
 -- Host: 127.0.0.1    Database: prizepicks
@@ -16,21 +18,6 @@
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
 --
--- Table structure for table `duration`
---
-
-DROP TABLE IF EXISTS `duration`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `duration` (
-  `id` int NOT NULL,
-  `name` varchar(100) DEFAULT NULL,
-  `version` int DEFAULT NULL,
-  `islatest` tinyint DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
 -- Table structure for table `game`
 --
 
@@ -39,18 +26,42 @@ DROP TABLE IF EXISTS `game`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `game` (
   `id` int NOT NULL,
-  `created_at` datetime DEFAULT NULL,
-  `end_time` datetime DEFAULT NULL,
-  `external_game_id` varchar(45) DEFAULT NULL,
-  `is_live` tinyint DEFAULT NULL,
+  `external_game_id` varchar(64) DEFAULT NULL,
   `away` varchar(64) DEFAULT NULL,
   `home` varchar(64) DEFAULT NULL,
-  `league_name` varchar(10) DEFAULT NULL,
-  `status` varchar(20) DEFAULT NULL,
+  `status` varchar(32) DEFAULT NULL,
   `start_time` datetime DEFAULT NULL,
-  `updated_at` datetime DEFAULT NULL,
-  `my_version` int DEFAULT NULL,
-  `islatest` tinyint DEFAULT NULL
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `game_change_history`
+--
+
+DROP TABLE IF EXISTS `game_change_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `game_change_history` (
+  `game_id` int NOT NULL,
+  `name` varchar(32) DEFAULT NULL,
+  `val` varchar(64) DEFAULT NULL,
+  `parsenum` int DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `game_timeseries`
+--
+
+DROP TABLE IF EXISTS `game_timeseries`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `game_timeseries` (
+  `game_id` int NOT NULL,
+  `name` varchar(32) DEFAULT NULL,
+  `val` varchar(64) DEFAULT NULL,
+  `parsenum` int DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -63,51 +74,43 @@ DROP TABLE IF EXISTS `league`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `league` (
   `id` int NOT NULL,
-  `active` tinyint NOT NULL,
-  `f2p_enabled` tinyint NOT NULL,
-  `icon` varchar(64) NOT NULL,
-  `image_url` varchar(100) NOT NULL,
-  `last_five_games_enabled` tinyint NOT NULL,
-  `league_icon_id` int NOT NULL,
-  `name` varchar(16) NOT NULL,
-  `projections_count` int NOT NULL,
-  `rank` int NOT NULL,
-  `show_trending` tinyint NOT NULL,
-  `is_data` tinyint DEFAULT '0',
-  `version` int DEFAULT NULL,
-  `islatest` tinyint(1) DEFAULT '1'
+  `icon` varchar(64) DEFAULT NULL,
+  `league_icon_id` int DEFAULT NULL,
+  `name` varchar(16) DEFAULT NULL,
+  `projections_count` int DEFAULT NULL,
+  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `league_data`
+-- Table structure for table `league_change_history`
 --
 
-DROP TABLE IF EXISTS `league_data`;
+DROP TABLE IF EXISTS `league_change_history`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `league_data` (
+CREATE TABLE `league_change_history` (
   `league_id` int NOT NULL,
-  `time_set` datetime NOT NULL,
-  `data` varchar(64) NOT NULL,
-  `version` int DEFAULT NULL,
-  `islatest` tinyint(1) DEFAULT '1',
-  KEY `league_id` (`league_id`)
+  `name` varchar(32) DEFAULT NULL,
+  `val` varchar(64) DEFAULT NULL,
+  `parsenum` int DEFAULT NULL,
+  PRIMARY KEY (`league_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `lfg_ignored_leagues`
+-- Table structure for table `league_timeseries`
 --
 
-DROP TABLE IF EXISTS `lfg_ignored_leagues`;
+DROP TABLE IF EXISTS `league_timeseries`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `lfg_ignored_leagues` (
-  `id` int NOT NULL,
-  `league_num` int NOT NULL,
-  `version` int DEFAULT NULL,
-  `islatest` tinyint(1) DEFAULT '1'
+CREATE TABLE `league_timeseries` (
+  `league_id` int NOT NULL,
+  `name` varchar(32) DEFAULT NULL,
+  `val` varchar(64) DEFAULT NULL,
+  `parsenum` int DEFAULT NULL,
+  PRIMARY KEY (`league_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -120,15 +123,45 @@ DROP TABLE IF EXISTS `new_player`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `new_player` (
   `id` int NOT NULL,
-  `name` varchar(45) NOT NULL,
-  `position` varchar(10) NOT NULL,
-  `image_url` varchar(200) DEFAULT NULL,
+  `name` varchar(45) DEFAULT NULL,
+  `position` varchar(10) DEFAULT NULL,
   `display_name` varchar(45) DEFAULT NULL,
-  `combo` tinyint NOT NULL DEFAULT '0',
-  `league_id` int NOT NULL,
-  `team_id` varchar(8) NOT NULL,
-  `version` int DEFAULT NULL,
-  `islatest` tinyint(1) DEFAULT '1'
+  `combo` tinyint DEFAULT '0',
+  `league_id` int DEFAULT NULL,
+  `team_id` varchar(8) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `new_player_change_history`
+--
+
+DROP TABLE IF EXISTS `new_player_change_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `new_player_change_history` (
+  `new_player_id` int NOT NULL,
+  `name` varchar(32) DEFAULT NULL,
+  `val` varchar(64) DEFAULT NULL,
+  `parsenum` int DEFAULT NULL,
+  PRIMARY KEY (`new_player_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `new_player_timeseries`
+--
+
+DROP TABLE IF EXISTS `new_player_timeseries`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `new_player_timeseries` (
+  `new_player_id` int NOT NULL,
+  `name` varchar(32) DEFAULT NULL,
+  `val` varchar(64) DEFAULT NULL,
+  `parsenum` int DEFAULT NULL,
+  PRIMARY KEY (`new_player_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -143,24 +176,18 @@ CREATE TABLE `projection` (
   `my_type` varchar(20) NOT NULL,
   `id` varchar(16) NOT NULL,
   `adjusted_odds` tinyint DEFAULT NULL,
-  `board_time` datetime NOT NULL,
   `my_description` varchar(45) NOT NULL,
   `discount_name` varchar(45) DEFAULT NULL,
   `discount_percentage` float DEFAULT NULL,
   `end_time` datetime DEFAULT NULL,
   `flash_sale_line_score` varchar(45) DEFAULT NULL,
   `game_id` varchar(45) DEFAULT NULL,
-  `hr_20` tinyint DEFAULT NULL,
-  `in_game` tinyint DEFAULT NULL,
-  `is_live` tinyint DEFAULT NULL,
   `is_promo` tinyint DEFAULT NULL,
   `odds_type` varchar(45) DEFAULT NULL,
   `projection_type` varchar(45) DEFAULT NULL,
-  `my_rank` int DEFAULT NULL,
   `refundable` tinyint DEFAULT NULL,
   `start_time` datetime DEFAULT NULL,
   `stat_type` varchar(45) DEFAULT NULL,
-  `my_status` varchar(45) DEFAULT NULL,
   `duration` varchar(90) DEFAULT NULL,
   `league` varchar(90) DEFAULT NULL,
   `new_player` varchar(90) DEFAULT NULL,
@@ -183,7 +210,6 @@ CREATE TABLE `projection_change_history` (
   `projection_id` varchar(20) NOT NULL,
   `colname` varchar(32) NOT NULL,
   `newvalue` varchar(64) DEFAULT NULL,
-  `my_time` datetime NOT NULL,
   `parsenum` int DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -199,7 +225,6 @@ CREATE TABLE `projection_timeseries` (
   `projection_id` int NOT NULL,
   `name` varchar(45) DEFAULT NULL,
   `val` float NOT NULL,
-  `my_time` datetime NOT NULL,
   `parsenum` int DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -214,8 +239,37 @@ DROP TABLE IF EXISTS `projection_type`;
 CREATE TABLE `projection_type` (
   `id` int NOT NULL,
   `name` varchar(45) NOT NULL,
-  `version` int DEFAULT NULL,
-  `islatest` tinyint(1) DEFAULT '1'
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `projection_type_change_history`
+--
+
+DROP TABLE IF EXISTS `projection_type_change_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `projection_type_change_history` (
+  `projection_type_id` int NOT NULL,
+  `name` varchar(32) DEFAULT NULL,
+  `val` varchar(64) DEFAULT NULL,
+  `parsenum` int DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `projection_type_timeseries`
+--
+
+DROP TABLE IF EXISTS `projection_type_timeseries`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `projection_type_timeseries` (
+  `projection_type_id` int NOT NULL,
+  `name` varchar(45) DEFAULT NULL,
+  `val` varchar(45) DEFAULT NULL,
+  `parsenum` int DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -232,23 +286,7 @@ CREATE TABLE `scrape_data` (
   `league_num` tinyint unsigned NOT NULL,
   `store_time` datetime DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=177 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `stat_average`
---
-
-DROP TABLE IF EXISTS `stat_average`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `stat_average` (
-  `id` int NOT NULL,
-  `average` float NOT NULL,
-  `count` int NOT NULL,
-  `version` int NOT NULL,
-  `islatest` tinyint NOT NULL DEFAULT '1'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=593 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -260,11 +298,40 @@ DROP TABLE IF EXISTS `stat_type`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `stat_type` (
   `id` int NOT NULL,
-  `lfg_ignored_leagues` int DEFAULT '0',
   `name` varchar(45) NOT NULL,
-  `rank` int NOT NULL,
-  `version` int NOT NULL DEFAULT '0',
-  `islatest` tinyint NOT NULL DEFAULT '1'
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `stat_type_change_history`
+--
+
+DROP TABLE IF EXISTS `stat_type_change_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `stat_type_change_history` (
+  `stat_id` int NOT NULL,
+  `name` varchar(32) DEFAULT NULL,
+  `val` varchar(64) DEFAULT NULL,
+  `parsenum` int DEFAULT NULL,
+  PRIMARY KEY (`stat_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `stat_type_timeseries`
+--
+
+DROP TABLE IF EXISTS `stat_type_timeseries`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `stat_type_timeseries` (
+  `stat_id` int NOT NULL,
+  `name` varchar(32) DEFAULT NULL,
+  `val` varchar(64) DEFAULT NULL,
+  `parsenum` int DEFAULT NULL,
+  PRIMARY KEY (`stat_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -277,27 +344,40 @@ DROP TABLE IF EXISTS `team`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `team` (
   `id` int NOT NULL,
-  `primary_color` varchar(20) DEFAULT NULL,
-  `abbreviation` varchar(32) NOT NULL,
+  `abbreviation` varchar(32) DEFAULT NULL,
   `name` varchar(45) DEFAULT NULL,
-  `tertiary_color` varchar(20) DEFAULT NULL,
-  `secondary_color` varchar(20) DEFAULT NULL,
   `market` varchar(64) DEFAULT NULL,
-  `version` int NOT NULL DEFAULT '0',
-  `islatest` tinyint NOT NULL DEFAULT '1'
+  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Table structure for table `type_cols`
+-- Table structure for table `team_change_history`
 --
 
-DROP TABLE IF EXISTS `type_cols`;
+DROP TABLE IF EXISTS `team_change_history`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `type_cols` (
-  `type_name` varchar(16) NOT NULL,
-  `col_name` varchar(45) NOT NULL
+CREATE TABLE `team_change_history` (
+  `team_id` int NOT NULL,
+  `name` varchar(32) DEFAULT NULL,
+  `val` varchar(64) DEFAULT NULL,
+  `parsenum` int DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `team_timeseries`
+--
+
+DROP TABLE IF EXISTS `team_timeseries`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `team_timeseries` (
+  `team_id` int NOT NULL,
+  `name` varchar(45) DEFAULT NULL,
+  `val` varchar(45) DEFAULT NULL,
+  `parsenum` int DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -310,4 +390,4 @@ CREATE TABLE `type_cols` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-04-12 20:25:59
+-- Dump completed on 2025-05-24 18:50:21

@@ -1,9 +1,9 @@
-from bs4 import BeautifulSoup
-import json
 from parsed_data import parsed_data
 from my_logs import log_perf
 
+#not used in current implementation, but may be useful in the future
 def valid_wp(wp):
+    raise NotImplementedError("valid_wp should not need to be called")
     '''
     Function to validate that the webpage is valid and ok to begin parsing before doing so. The function looks for a few things:
     1. Check if the wp passed in can even be parsed as html by beautifulsoup
@@ -35,6 +35,7 @@ def valid_wp(wp):
     return to_validate
 
 def discard_html(webpage):
+    raise NotImplementedError("discard_html should not need to be called")
     '''
     Function to get rid of the HTML around the json data that we are interested in parsing.
     Will return false if webpage is not in expected format and fails check for valid_wp.
@@ -48,7 +49,7 @@ def discard_html(webpage):
     return json.loads(soup.find('pre').text)
 
 @log_perf
-def parse_webpage(webpage, pp_db):
+def parse_webpage(json_data, pp_db):
     '''
     This function takes in an HTML webpage from prizepicks API request, strips the HTML from it and just goes through each of the tags in the json
     about the bets and stats. This function will also facilitate sending the parsed data to the local mySQL database.
@@ -59,13 +60,6 @@ def parse_webpage(webpage, pp_db):
     Parsing the data tags will return a list of values to coorespond to each of the values in the 'data_order' list. Before adding it all into the mySQL db.
     '''
     '''---Get the json data from the raw html---'''
-    
-    try:
-        json_data = discard_html(webpage)
-        if json_data is False:
-            return 1001
-    except json.decoder.JSONDecodeError as e:
-        return 1002
     
     col_orders = pp_db.get_data_to_parse()
     proj_order = col_orders['projection']
@@ -129,9 +123,7 @@ def parse_proj_data(data_item, col_order):
 def parse_proj_json(json_data, order):
 
     data_values = []
-    #print("Parsing 'projection' tags...")
     for item in json_data['data']:
-
         '''---For each of the tags in the 'data' tag, send them all to the 'data' parser to get the necessary data from the json---'''
         my_data = parse_proj_data(item, order)
         data_values.append(my_data)
@@ -173,6 +165,7 @@ def parse_included_data(included_data, col_orders):
             my_tag[col] = tag['attributes'].get(col)
 
         #new_player and game tags have some data which exists outside of the attributes tags, so these code blocks get that data and pull it into the dict
+        '''---add logging here for when these are not found---'''
         if tag['type'] == "new_player":
             try:
                 my_tag['team_id'] = tag['relationships']['team_data']['data']['id']
