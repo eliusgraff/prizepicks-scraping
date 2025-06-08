@@ -170,57 +170,7 @@ class prizepicks_scheduler:
             self._schedule_loop()
 
         return True
-    
-    def _schedule_loop(self):
-        #this is the loop which will schedule the commands to be executed. This will run until the _stop_loop flag is set to true.
-        self._stop_loop = False
-        min_time_to_wait = 5 #in seconds to avoid spamming the API with requests and being detected
-
-        while True:
-            if self._stop_loop:
-                print("Scheduler loop stopped gracefully.")
-                break
-
-            #Checking to see if it is time to execute the next command in the queue
-            nxt_cmd = self.cmd_q[0]
-            my_delta = nxt_cmd[0] - datetime.now(timezone.utc)
-            sec_to_exec = my_delta.total_seconds()
-            
-            #If next command is ready to be executed, then execute it
-            if sec_to_exec < (self.loop_wakeup_time/2):
-
-                cmd_type = nxt_cmd[1]
-                '''status = False
-                if cmd_type == "clean":
-                    status = self._db_obj.clean_db()
-
-                elif cmd_type in self.known_leagues:
-                    status = self._scrape_prizepicks_data(cmd_type)
-
-                else:
-                    raise TypeError(f"Unknown command type: {cmd_type}")
-                
-                if status is False:
-                    #---Log this error---
-                    print("Problem found executing command...")
-                    raise RuntimeError(f"Command {cmd_type} failed to execute properly.")'''
-                print(f"Executing command: {cmd_type}")
-
-                if self._update_queue() == False:
-                    '''---Log this error---'''
-                    print("Problem updating queue after command execution.")
-                    raise RuntimeError("Queue update failed after command execution.")
-
-            #Tell the loop to sleep until either the next wakeup time or the next command execution time.
-            #I do put a limit on here that the loop will not sleep for less than 5 seconds, to avoid spamming the API.
-            sleep_time = min( self.loop_wakeup_time,max( min_time_to_wait,sec_to_exec ) )
-            print(f"Sleep time: {sleep_time}")
-            time.sleep( sleep_time )
-
-        #If loop is gracefully broken out of, then reset the stop flag so it can be restarted without issue if needed
-        self._stop_loop = False
-        return True
-    
+        
     def _scrape_prizepicks_data(self, league):
         #Funtion which facilitest getting data from PrizePicks and into the DB
 
@@ -250,21 +200,133 @@ class prizepicks_scheduler:
             print(f"SQL status: {self._db_obj.send_to_sql(wp_data, scrape_id)}")
             consec_errors = 0
         
-        return True
+        return (True, wp_data)
+    
+    def _q_sanity_check(self, cmd_type):
+        #Function which quickly checks to make sure there is exactly 1 instance of cmd_type in the q. If 0 or more than 1 instance in the q.
+        #If 0 instances, returns 0
+        #If >1 instance, return 2
+        #Otherwise, return 1
 
-    def _update_queue(self):
-        #update queue once a command has been executed. 
+        found_cmd = False
+        for i, cmd in enumerate(self.cmd_q):
+            
+            #First instance found
+            if cmd[1] == cmd_type and found_cmd is False:
+                found_cmd = True
+            
+            #second instance found
+            elif cmd[1] == cmd_type and found_cmd is True:
+                return 2
+        
+        #Got to end with nothing found
+        if found_cmd is False:
+            return 0
+        
+        return 1
 
-        #requeue same command back at newly scheduled time in the queue
+    def _update_req_freq(self, cmd_type, next_game):
+        #Takes a look at when the next game for a specific league is and dynamically schedules when the next time it should be scheduled is
 
-        '''---Eventually add some logic in here to schedule things with no upcoming games less often than things that do---'''
+        #None can indicate 2 things: 1 that something went wrong and no data was parsed or 2 that there are in fact no upcoming games and the season
+        #is over or no bets are available.
+            #So not to overcompensate for the case of #1, will double the refresh time
+        pass
+        
+
+    def _update_queue(self, data):
+        #update queue once a command has been executed and make adjustments to scheduler as-needed
+        
+        #---Updaing the queue---
+        #Since each command can only be in the q once, this just takes the command just executed (at spot 0), adds the request rate for that command
+        #type to the current time, then inserts it back into the queue in order
+
+        #---Updating the request rate---
+        #I assume that as we get closer to gametime, spreads are going to change more often. To make sure I'm not making more requests to the
+        #prizepicks API than needed. Since each API call gets all the data each time, I'm just going to make my calls based on the next game to occur
+        #so this find the next most recent game time and computes when the next request should be from that.
 
         cmd_type = self.cmd_q[0][1]
-        bisect.insort(self.cmd_q, (datetime.now(timezone.utc) + timedelta(seconds=self.schedule_rates[cmd_type]), cmd_type))
 
-        #remove executed command
+        #If no data to check against, can just return true
+        if data is None:
+            return True
+
+        #If no game data comes up, that is still useful info for the scheduler, so passing in None so it knows no more games were parsed
+        if data.included_tag_values.get('game') is None:
+            self._update_req_freq(cmd_type, None)
+            return True
+        
+        #The next game being 28 days away will trigger lowest request rate, so start with this and then see if any are sooner than that
+        next_game = datetime.now(timezone.utc) + timedelta( days=28 )
+
+        #go through each game and check if it is earlier than the next_game
+        for game_data in data.included_tag_values['game']:
+            
+            #Make sure the data for game start time exists in parsed object, if not, go to the next entry
+            game_time = game_data.get('start_time')
+            if game_time is None:
+                continue
+
+            #Check if the game start time is before the next known game. If so, then update the next game time
+            game_time = datetime.fromisoformat(game_time).astimezone(timezone.utc)
+            if game_time < next_game:
+                next_game = game_time
+
+        self._update_req_freq(cmd_type, next_game)
+
+        bisect.insort(self.cmd_q, (datetime.now(timezone.utc) + timedelta(seconds=self.schedule_rates[cmd_type]), cmd_type))
         self.cmd_q.pop(0)
 
+        return True
+    
+    def _schedule_loop(self):
+        #this is the loop which will schedule the commands to be executed. This will run until the _stop_loop flag is set to true.
+        self._stop_loop = False
+        min_time_to_wait = 5 #in seconds to avoid spamming the API with requests and being detected
+
+        while True:
+            if self._stop_loop:
+                print("Scheduler loop stopped gracefully.")
+                break
+
+            #Checking to see if it is time to execute the next command in the queue
+            nxt_cmd = self.cmd_q[0]
+            my_delta = nxt_cmd[0] - datetime.now(timezone.utc)
+            sec_to_exec = my_delta.total_seconds()
+            data = None
+
+            #If next command is ready to be executed, then execute it
+            if sec_to_exec < (self.loop_wakeup_time/2):
+
+                cmd_type = nxt_cmd[1]
+                status = False
+                if cmd_type == "clean":
+                    print("Executing db cleaning")
+                    status = self._db_obj.clean_db()
+
+                elif cmd_type in self.known_leagues:
+                    print(f"Executing command {cmd_type}")
+                    status, data = self._scrape_prizepicks_data(cmd_type)
+
+                else:
+                    raise TypeError(f"Unknown command type: {cmd_type}")
+                
+                if status is False:
+                    #---Log this error---
+                    print("Problem found executing command...")
+                    raise RuntimeError(f"Command {cmd_type} failed to execute properly.")
+                
+            self._update_queue(data)    
+
+            #Tell the loop to sleep until either the next wakeup time or the next command execution time.
+            #I do put a limit on here that the loop will not sleep for less than 5 seconds, to avoid spamming the API.
+            sleep_time = min( self.loop_wakeup_time,max( min_time_to_wait,sec_to_exec ) )
+            print(f"Sleep time: {sleep_time}")
+            time.sleep( sleep_time )
+
+        #If loop is gracefully broken out of, then reset the stop flag so it can be restarted without issue if needed
+        self._stop_loop = False
         return True
 
     #class to hold all the relevant queue data from scheduler class when it is destructed. this way the data persists even if the class is deleted

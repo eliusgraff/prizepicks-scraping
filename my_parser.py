@@ -91,6 +91,8 @@ def parse_included_data(included_data, col_orders):
     in the tag called 'included'. This data defines what the projection is (ie rushing vs passing yards), who the player is, what team they are on and so forth.
     The more data which can be collected the more predictions can be made based on the outcomes of the projections.
     '''
+    if included_data is None:
+        return dict()
     parsed_data = dict()
     skipped = {'stat_average', 'duration'}
     for table_name in col_orders:

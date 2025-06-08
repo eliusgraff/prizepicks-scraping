@@ -196,8 +196,8 @@ class prizepicks_db:
         id_list = tuple(values[id_index] for values in data)
         my_len = len(id_list)
         if my_len == 0:
-            print(f"No data to add for {table}. Returning...")
-            return
+            print(f"No data to add for {table}. Returning empty list.")
+            return []
         elif len(id_list) == 1:
             id_list = f"({id_list[0]})"
         return self.read_query(f"SELECT * FROM {table} WHERE ID IN {id_list};")
@@ -514,3 +514,16 @@ class prizepicks_db:
                         timeseries_list.append([incoming_data['id'], ts_name, incoming_data[ts_name], scrape_id])   
 
             self._add_new_lines(insert_list, change_list, update_list, table, timeseries_list, id_index)
+
+    def clean_db(self):
+        '''
+        This function will be responsible for perfroming occasional cleanup of the DB as-needed. the primary use case for this is to clean the
+        timeseries data tables. Since these data points are added no matter what during the scraping process, in the likely case where the spreads are
+        not changing much, there would be tons of redundant data in the timeseries table adding tons of bloat to something that I cannot afford to let
+        expand infinitley.
+
+        In the future other things may be added to this for other administrative/cleaning things. But for now, the timeseries cleanups are the main
+        priority.
+        '''
+        print("Not implemented yet, doing nothing and returning good status!")
+        return True
