@@ -87,8 +87,30 @@ def hour_run():
         print(f"...Completed #{iter}/{my_range}...\n...Sleeping...\n")
         time.sleep(30)
 
+def trial():
+    x = prizepicks_db()
+    trials = [
+        [4001021,4001022,4001023,4001024,4001025,4001026],
+        [4001021],
+        ['4001021','4001022','4001023','4001024','4001025','4001026'],
+        [],
+        None
+    ]
+    for test_list in trials:
+        print("Test list:")
+        print(test_list)
+        table_name = 'projection'
+        base_sql = f"Select * FROM {table_name} "
+        where_clause = "" if test_list is None else f"WHERE ID in ({','.join([str(x) for x in test_list])})"
+        sql = base_sql + where_clause
+        print(f"my query: {sql}")
+        print(x.read_query(sql))
+        print("-----------")
+
 if __name__ == "__main__":
     '''
     Eventually, this will be the code that is the manager for the scraper that keep running all the time
     '''
+    trial()
+    exit("Done with Trial")
     hour_run()

@@ -328,14 +328,16 @@ class prizepicks_db:
             #To update the existing projection rows in the db, they are first deleted and then replaced by the updated rows
 
             #Goes through the update list and grabs the ids of the rows that need to be deleted
-            '''---If this never trips, then just leave in the list comprehension---'''
             delete_ids = [row[row_id_index] for row in update_list]
             
             #add the updated row to my_data_list so that the latest data is inserted into the db
             my_data_list += update_list
 
-            #SQL query to delete the rows with old data in them
-            delete_query = f"DELETE FROM {table_name} WHERE ID IN ({','.join(delete_ids)});"
+            #build SQL query to delete the rows with old data in them
+            base_sql = f"DELETE FROM {table_name} "
+            where_clause = "" if delete_ids is None else f"WHERE ID in ({','.join([str(x) for x in delete_ids])})"
+            delete_query = base_sql + where_clause
+
             try:
                 self._sql_cursor.execute(delete_query)
             except mysql.connector.Error as sql_err:
@@ -396,10 +398,10 @@ class prizepicks_db:
     
     def _report_sql_error(self, error, query, rows):
         print(f"Query: {query}")
-        input(f"ERROR MESSAGE: {error.msg}")
+        print(f"ERROR MESSAGE: {error.msg}")
         for row in rows:
             print(row)
-        exit()
+        raise Exception("SQL Error found, please review")
 
     def read_query(self, query):
         

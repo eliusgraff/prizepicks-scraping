@@ -7,6 +7,7 @@ import threading
 import time
 import my_parser
 import bisect
+import pytz
 
 class prizepicks_scheduler:
     
@@ -27,13 +28,13 @@ class prizepicks_scheduler:
 
     loop_wakeup_time = 15 #in seconds, how often the loop should wake up to check for new requests
     
-    default_req_rate = 300 #in seconds
-    min_req_rate = 86400 #in seconds
-    max_req_rate = 30 #in seconds
+    default_req_rate = 300 # five min in seconds
+    min_req_rate = 86400 # one day in seconds
+    max_req_rate = 60 # one min in seconds
     
-    default_clean_rate = 86400 #in seconds
-    min_clean_rate = 86400 #in seconds
-    max_clean_rate = 3600 #in seconds
+    default_clean_rate = 86400 # one day in seconds
+    min_clean_rate = 86400 # one day in seconds
+    max_clean_rate = 36000 # ten hours in seconds
 
     def __init__(self):
         #Constructor for the scheduler class. This will load the queue from a file if it exists, otherwise it will create a default queue.
@@ -44,7 +45,7 @@ class prizepicks_scheduler:
             self._load_queue_data()
             print(f"Loaded queue from file: {self.scheduler_filename}")
         for each in self.cmd_q:
-            print(each)
+            print(f"{each}\t{self.schedule_rates[each[1]]}")
 
     def __del__(self):
         #destructor for the scheduler class. This will save the existing queue data to a file for recovery next time the class is instantiated.
@@ -157,11 +158,16 @@ class prizepicks_scheduler:
         #If runtime is set to some number of mins, then start a thread to run the scheduler loop and wait for that many minutes before stopping the
         #loop
         elif runtime_mins > 0:
-            action_loop = threading.Thread(target=self._schedule_loop, args=())
-            action_loop.start()
-            time.sleep(runtime_mins * 60)
+            try:
+                action_loop = threading.Thread(target=self._schedule_loop, args=())
+                action_loop.start()
+                time.sleep(runtime_mins * 60)
+            except KeyboardInterrupt:
+                print("User input stopping loop prematurely...")
+
             self.stop_scheduler()
             action_loop.join(timeout = self.loop_wakeup_time+1)
+            
             if action_loop.is_alive():
                 exit("Houston, we have a problem! Scheduler did not stop in time. Exiting.")
         
@@ -175,7 +181,15 @@ class prizepicks_scheduler:
         #Funtion which facilitest getting data from PrizePicks and into the DB
 
         ABORT = 5
-        scrape_data =web_scraper.get_prizepicks(league, self._db_obj)
+        scrape_data = web_scraper.get_prizepicks(league, self._db_obj)
+
+        if isinstance(scrape_data, int):
+            '''---Log these errors---'''
+            if scrape_data == 1:
+                print(f"Legue {league} not recognized by scraper!")
+
+            return (False, scrape_data)
+
         webpage = scrape_data[0]
         scrape_id = scrape_data[1]
         wp_data = my_parser.parse_webpage(webpage, self._db_obj)
@@ -225,14 +239,82 @@ class prizepicks_scheduler:
         
         return 1
 
-    def _update_req_freq(self, cmd_type, next_game):
+    def _update_req_freq(self, cmd_type, game_data):
         #Takes a look at when the next game for a specific league is and dynamically schedules when the next time it should be scheduled is
+        #There are 2 assumptions made in the logic of this function:
+        #1) that as a player gets closer to gametime, their spread is more likely to change
+        #This function will look at both time since the game was created and time until the same is supposed to start and decide frequency based on the
+        #event closest in time (in future or past)
 
         #None can indicate 2 things: 1 that something went wrong and no data was parsed or 2 that there are in fact no upcoming games and the season
         #is over or no bets are available.
             #So not to overcompensate for the case of #1, will double the refresh time
-        pass
+        if game_data is None:
+            '''---Good to log to make sure this is behaving as expected---'''
+            self.schedule_rates[cmd_type] = min( self.schedule_rates[cmd_type]*2, self.min_req_rate )
+            return
         
+        #The next game being >28 days away will trigger lowest request rate, so start with this and then see if any are sooner than that
+        next_game = datetime.now(timezone.utc) + timedelta( days=28 )
+
+        #go through each game and check if it is earlier than the next_game
+        for game in game_data:
+            
+            #Make sure the data for game start time exists in parsed object, if not, go to the next entry
+            start_time = game.get('start_time')
+            if start_time is not None:
+                start_time = datetime.fromisoformat(start_time).astimezone(timezone.utc)
+                if start_time < next_game:
+                    next_game = start_time
+        
+        sec_to_nxt_gm = (next_game - datetime.now(timezone.utc)).total_seconds()
+        four_wks = 2419200
+        one_wk = 604800
+        four_days = 345600
+        one_day = 86400
+        six_hrs = 21600
+        three_hrs = 10800
+        one_hr = 3600
+        thrty_mins = 1800
+        fiften_mins = 900
+        five_mins = 300
+        two_mins = 120        
+
+        #over one month away, just check once a day
+        if sec_to_nxt_gm > four_wks:
+            self.schedule_rates[cmd_type] = self.min_req_rate 
+
+        #4-1 week away
+        elif sec_to_nxt_gm > one_wk:
+            self.schedule_rates[cmd_type] = one_hr
+
+        #7-4 days away
+        elif sec_to_nxt_gm > four_days:
+            self.schedule_rates[cmd_type] = thrty_mins
+
+        #4-1 day away
+        elif sec_to_nxt_gm > one_day:
+            self.schedule_rates[cmd_type] = fiften_mins
+
+        #24-6 hrs away
+        elif sec_to_nxt_gm > six_hrs:
+            self.schedule_rates[cmd_type] = five_mins
+
+        #6-3 hrs away
+        elif sec_to_nxt_gm > three_hrs:
+            self.schedule_rates[cmd_type] = two_mins
+
+        #3-0 hrs away
+        elif sec_to_nxt_gm > 0:
+            self.schedule_rates[cmd_type] = self.max_req_rate
+        
+        #Negative time should not be possible, this needs to be checked! Setting to default 
+        else:
+            '''---Log this---'''
+            print("Time to next game is negative, that should not be possible, resetting to default")
+            self.schedule_rates[cmd_type] = self.default_req_rate
+
+        return
 
     def _update_queue(self, data):
         #update queue once a command has been executed and make adjustments to scheduler as-needed
@@ -248,32 +330,10 @@ class prizepicks_scheduler:
 
         cmd_type = self.cmd_q[0][1]
 
-        #If no data to check against, can just return true
-        if data is None:
-            return True
-
-        #If no game data comes up, that is still useful info for the scheduler, so passing in None so it knows no more games were parsed
-        if data.included_tag_values.get('game') is None:
-            self._update_req_freq(cmd_type, None)
-            return True
-        
-        #The next game being 28 days away will trigger lowest request rate, so start with this and then see if any are sooner than that
-        next_game = datetime.now(timezone.utc) + timedelta( days=28 )
-
-        #go through each game and check if it is earlier than the next_game
-        for game_data in data.included_tag_values['game']:
-            
-            #Make sure the data for game start time exists in parsed object, if not, go to the next entry
-            game_time = game_data.get('start_time')
-            if game_time is None:
-                continue
-
-            #Check if the game start time is before the next known game. If so, then update the next game time
-            game_time = datetime.fromisoformat(game_time).astimezone(timezone.utc)
-            if game_time < next_game:
-                next_game = game_time
-
-        self._update_req_freq(cmd_type, next_game)
+        #Make sure there is data to check against, if not then no need to adjust frequencies
+        if data is not None:
+            #today the function only needs the game data, so just send what the fucntion needs
+            self._update_req_freq(cmd_type, data.included_tag_values.get('game'))
 
         bisect.insort(self.cmd_q, (datetime.now(timezone.utc) + timedelta(seconds=self.schedule_rates[cmd_type]), cmd_type))
         self.cmd_q.pop(0)
@@ -315,15 +375,25 @@ class prizepicks_scheduler:
                 if status is False:
                     #---Log this error---
                     print("Problem found executing command...")
-                    raise RuntimeError(f"Command {cmd_type} failed to execute properly.")
+                    raise RuntimeError(f"Command {cmd_type} failed to execute properly. Status = {status}")
                 
-            self._update_queue(data)    
+                self._update_queue(data)
+
+            else:
+                print("Woke up but nothing to execute. Here is current q:")
+                for sch,cmd in self.cmd_q:
+                    print(f"{sch.astimezone().isoformat()}\t{cmd}\t{self.schedule_rates[cmd]}")
 
             #Tell the loop to sleep until either the next wakeup time or the next command execution time.
             #I do put a limit on here that the loop will not sleep for less than 5 seconds, to avoid spamming the API.
             sleep_time = min( self.loop_wakeup_time,max( min_time_to_wait,sec_to_exec ) )
-            print(f"Sleep time: {sleep_time}")
-            time.sleep( sleep_time )
+            print(f"Sleep time: {sleep_time} sec\n------------------\n")
+            try:
+                time.sleep( sleep_time )
+            except KeyboardInterrupt:
+                print("User input stopping execution early!")
+                self._stop_loop = True
+                break
 
         #If loop is gracefully broken out of, then reset the stop flag so it can be restarted without issue if needed
         self._stop_loop = False

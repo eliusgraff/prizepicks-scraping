@@ -6,7 +6,7 @@ known_leagues = {
     "CFB":15,
     "MLB":2,
     "WNBA":3,
-    "Soccer":82,
+    "SOCCER":82,
     "CFB2H": 150,
     "NBA": 7,
 }
