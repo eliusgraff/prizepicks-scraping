@@ -344,10 +344,10 @@ class prizepicks_scheduler:
     def _print_q_status(self):
         #Function to print the current status of the queue to the console
 
-        print("---Queue status---")
+        print("\t---Queue status---")
         for sch,cmd in self.cmd_q:
             print(f"\t{sch.astimezone().isoformat()}\t{cmd}\t{self.schedule_rates[cmd]}")
-        print("------------------")
+        print("\t------------------")
 
     def _schedule_loop(self):
         #this is the loop which will schedule the commands to be executed. This will run until the _stop_loop flag is set to true.
