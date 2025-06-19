@@ -198,9 +198,16 @@ class prizepicks_db:
         if my_len == 0:
             print(f"No data to add for {table}. Returning empty list.")
             return []
-        elif len(id_list) == 1:
+        '''elif len(id_list) == 1:
             id_list = f"({id_list[0]})"
-        return self.read_query(f"SELECT * FROM {table} WHERE ID IN {id_list};")
+        return self.read_query(f"SELECT * FROM {table} WHERE ID IN {id_list};")'''
+    
+    
+        #build SQL query to get existing data from the db for the ids to compare with
+        base_sql = f"SELECT * FROM {table} "
+        where_clause = "" if id_list is None else f"WHERE ID in ({','.join([str(data_id) for data_id in id_list])})"
+        sql_query = base_sql + where_clause
+        return self.read_query(sql_query)
 
     def _add_timeseries(self, headers, incoming_row, row_id, scrape_id):
         #Function to create timeseries entires for each entry in the incoming row if it exists
@@ -466,11 +473,18 @@ class prizepicks_db:
 
             #pull in existing data for the db into a dict to compare against and see if any changes need to be made to the db
             incoming_ids = [row['id'] for row in data]
-            if len(incoming_ids) == 1:
+            '''if len(incoming_ids) == 1:
                 incoming_ids = f"({incoming_ids[0]})"
             else:
                 incoming_ids = tuple(incoming_ids)
-            existing_data = self.read_query(f"SELECT * FROM {table} WHERE id IN {incoming_ids};")
+            existing_data = self.read_query(f"SELECT * FROM {table} WHERE id IN {incoming_ids};")'''
+
+            #build SQL query to delete the rows with old data in them
+            base_sql = f"DELETE FROM {table} "
+            where_clause = "" if incoming_ids is None else f"WHERE ID in ({','.join([str(x) for x in incoming_ids])})"
+            sql_query = base_sql + where_clause
+            existing_data = self.read_query(sql_query)
+            
             existing_dict = dict()
             for row in existing_data:
                 existing_dict[row[id_index]] = row

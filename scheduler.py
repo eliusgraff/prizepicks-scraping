@@ -50,6 +50,7 @@ class prizepicks_scheduler:
     def __del__(self):
         #destructor for the scheduler class. This will save the existing queue data to a file for recovery next time the class is instantiated.
         self._save_queue_data()
+        print("Scheduler class cleaned up completely")
 
     def _save_queue_data(self):
         #Sending queue and request rates to a file so that they can be loaded next time the class is instantiated.
@@ -340,6 +341,14 @@ class prizepicks_scheduler:
 
         return True
     
+    def _print_q_status(self):
+        #Function to print the current status of the queue to the console
+
+        print("---Queue status---")
+        for sch,cmd in self.cmd_q:
+            print(f"\t{sch.astimezone().isoformat()}\t{cmd}\t{self.schedule_rates[cmd]}")
+        print("------------------")
+
     def _schedule_loop(self):
         #this is the loop which will schedule the commands to be executed. This will run until the _stop_loop flag is set to true.
         self._stop_loop = False
@@ -381,13 +390,13 @@ class prizepicks_scheduler:
 
             else:
                 print("Woke up but nothing to execute. Here is current q:")
-                for sch,cmd in self.cmd_q:
-                    print(f"{sch.astimezone().isoformat()}\t{cmd}\t{self.schedule_rates[cmd]}")
+            
+            self._print_q_status()
 
             #Tell the loop to sleep until either the next wakeup time or the next command execution time.
             #I do put a limit on here that the loop will not sleep for less than 5 seconds, to avoid spamming the API.
             sleep_time = min( self.loop_wakeup_time,max( min_time_to_wait,sec_to_exec ) )
-            print(f"Sleep time: {sleep_time} sec\n------------------\n")
+            print(f"Sleep time: {sleep_time} sec")
             try:
                 time.sleep( sleep_time )
             except KeyboardInterrupt:

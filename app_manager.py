@@ -6,6 +6,7 @@ import my_logs
 import datetime
 import time
 import logging
+from scheduler import prizepicks_scheduler as sch
 
 def save_wp_data(wp, fn):
     '''
@@ -111,6 +112,6 @@ if __name__ == "__main__":
     '''
     Eventually, this will be the code that is the manager for the scraper that keep running all the time
     '''
-    trial()
-    exit("Done with Trial")
-    hour_run()
+    s = sch()
+    s.run_scheduler(0.25)
+    del s
