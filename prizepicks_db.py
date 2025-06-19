@@ -541,5 +541,74 @@ class prizepicks_db:
         In the future other things may be added to this for other administrative/cleaning things. But for now, the timeseries cleanups are the main
         priority.
         '''
+
+        '''
+        There could also be some threading going on here where different threads could each be cleaning parsenums for various leagues at the same time.
+        This seems like it may be a bit complicated, but would be cool to come back and do in the future!
+        '''
+
+        #Cleaning implementation:
+
+        #arguments - gnerally to bound the process. As this get bigger and bigger, need to make sure the code doesnt waste a bunch of time thinking about cleaning things which have already been cleaned:
+            #Last time the cleaning was performed
+            #A time, in seconds, to define how long the cleaner has
+
+        #retun value:
+            #true if everything is completed in the time given to it
+            #a parse number so that caller knows where it left off ( I wonder if this needs to be stored somewhere in the db too)
+
+        #Psuedocode:
+
+        #get the last parse num that was cleaned (either from caller or based on what is stored in the db)
+            #I wonder if abool in the parsenum table should just be added to mark whether it has been cleaned or not, this way it is always obvious
+            #to the class where to pick back off. Status can be sent back to the caller so they know if more cleaning or time needs to be allotted
+
+        #id_list = get a list of all the parse nums which have happened since the last one cleaned - ordered first->last
+
+        #seed_data = pull in all of the timeseries data for the first parsenum in the list (this will include projection ids in the same rows)
+
+        #pervious_data = get the latest piece of timeseries data for each of the projection ids (if they exist)
+
+        #delete_data = some object which stores enough data to make sure all the redundant data is eventually removed
+
+        #stop_condition = False
+
+        #i, id = enumerate through each of the parse nums from id_list:
+            
+            #check if stop condition is met (or flag is triggered)
+                #if so, 
+                # print that the function is wrapping up
+                # store the parsed num the function is currently on
+                # break from the 
+
+            #clean_dict = (i%10 == 0)
+            
+            #if clean_dict:
+                #id_set = set of all the ids in the previous_data dict
+
+            #newer_data = pull in all of the timeseries data for the current parsenum in the list (this will include projection ids in the same rows)
+
+            #for data_row in newer_data:
+
+                #remove row's id from the id_set
+
+                #if data for the same id is the same, then store data needed to delete the newer entry in delete_data (will be executed later)
+
+                #if data is different, then update the previous_data object with the newer data
+
+                #if the id does not exist in the dict at all, then add it!
+
+            #if clean_dict:
+                #for id in id_set:
+                    #del previous_data[id]
+
+        #Delete whatever is needed from the db with info in the delte_data object
+
+        #Go through all the parsenums which have been fully cleaned and mark them as such in the db
+
+        #if stop_condition is false: return True
+        #else: return the parse num of where the function left off
+
+
         print("Not implemented yet, doing nothing and returning good status!")
         return True
