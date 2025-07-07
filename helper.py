@@ -2,6 +2,10 @@ import shutil
 import pathlib
 import os
 
+def print_dict(my_dict):
+    for k,v in my_dict.items():
+        print(f"{k}\t{v}")
+
 def get_secret(query, fn = "secrets.txt"):
     '''
     Function used to get personal info from secret file. Caller passes in a string 'query' and this function

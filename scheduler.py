@@ -7,7 +7,6 @@ import threading
 import time
 import my_parser
 import bisect
-import pytz
 
 class prizepicks_scheduler:
     
@@ -40,7 +39,7 @@ class prizepicks_scheduler:
         #Constructor for the scheduler class. This will load the queue from a file if it exists, otherwise it will create a default queue.
         if not os.path.isfile(self.scheduler_filename):
             print(f"Scheduler file not found. Creating queue from defaults.")
-            self._create_default_queue()
+            self._default_queue()
         else:
             self._load_queue_data()
             print(f"Loaded queue from file: {self.scheduler_filename}")
@@ -407,6 +406,23 @@ class prizepicks_scheduler:
         #If loop is gracefully broken out of, then reset the stop flag so it can be restarted without issue if needed
         self._stop_loop = False
         return True
+
+    def _clean_db(self):
+        self._db_obj.clean_db()
+        print("*****1 done******")
+        self._db_obj.clean_db(start_id = 355)
+        print("*****2 done******")
+        self._db_obj.clean_db(leaguenum = 7)
+        print("*****3 done******")
+        self._db_obj.clean_db(start_id = 341, leaguenum=7)
+        print("*****4 done******")
+        self._db_obj.clean_db(start_id = 642, leaguenum=7)
+        print("*****5 done******")
+        self._db_obj.clean_db(leaguenum = 8)
+        print("*****6 done******")
+        self._db_obj.clean_db(start_id = 261)
+        print("*****7 done******")
+
 
     #class to hold all the relevant queue data from scheduler class when it is destructed. this way the data persists even if the class is deleted
     class _queue_data:

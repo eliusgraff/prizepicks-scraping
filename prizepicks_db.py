@@ -1,6 +1,6 @@
 import mysql.connector
 import helper
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from parsed_data import parsed_data
 from my_logs import log_perf
 
@@ -56,12 +56,16 @@ class prizepicks_db:
     ]
     _sql_conn = None
     _sql_cursor = None
+    _sql_buffered_cursor = None
     _external_data_names = dict()
+    _is_cleaning = False
 
     def __init__(self):
         self._sql_conn = self._create_db_connection()
         self._sql_cursor = self._sql_conn.cursor()
+        self._sql_buffered_cursor = self._sql_conn.cursor(buffered = True)
         self._set_external_data_names()
+        self._is_cleaning = False
 
     def _set_external_data_names(self):
         #Run to concisely get all the names of all the data names for a given data type parsed from the prizepicks api
@@ -441,6 +445,7 @@ class prizepicks_db:
     def create_scrape_id( self, status, leaguenum, timestamp):
         #function which takes in the required data to define a scrape entry in the db.
         #this function add that the db and returns the id of that new entry
+
         self._sql_cursor.execute(f"INSERT INTO scrape_data (id, my_status, league_num, store_time) VALUES ( NULL, {status},{leaguenum}, '{timestamp}');")
         self._sql_conn.commit()
         scrape_id = self.read_query('SELECT LAST_INSERT_ID();')[0][0]
@@ -531,84 +536,435 @@ class prizepicks_db:
 
             self._add_new_lines(insert_list, change_list, update_list, table, timeseries_list, id_index)
 
-    def clean_db(self):
+    #A way for a caller to check if db cleaning is ongoing
+    def is_cleaning(self):
+        return self._is_cleaning
+
+    #How caller can manually stop cleaning process of the db
+    def stop_clean(self):
+        self._is_cleaning = False
+
+    def _build_dict(self, lgnm, nums, start):
+        print("Building validation dict")
+        id_list = self.read_query(f"SELECT id FROM scrape_data WHERE league_num = {lgnm} AND my_status = 1 AND is_cleaned = 0 AND id > {start} ORDER BY store_time ASC;")
+        pre_dict = dict()
+        print("\tGetting parse data from the DB")
+        for i in range(nums):
+
+            parse_data = self.read_query(f"SELECT * FROM projection_timeseries WHERE parsenum = {id_list[i][0]}")
+            for row in parse_data:
+
+                kn = f"{row[0]}_{row[1]}"
+                temp_series = pre_dict.get(kn)
+                if temp_series is None:
+                    pre_dict[kn] = [row[2]]
+                else:
+                    '''---To make code back to the way it was, remove this if/else satetmtn'''
+                    temp_series.append(row[2])
+
+        return pre_dict
+
+    #Function to standardize creation of keys for dict in cleaning db
+    def _create_keyword(self, row_data):
+        assert len(row_data) > 2
+        return f"{row_data[0]}_{row_data[1]}"
+
+    def clean_db(self, leaguenum = None, timer = None, num_ids = None, start_id = None):
+        #Function to facilitate cleaning of redundant data in the timeseries tables. Since these data points are added no matter what after parsing, 
+        #there is a lot of times where data is stored when it doesnt need to because nothing is changing, so this function is meant to be run 
+        #periodically to reduce bloat in the timeseries tables of the database.
+
+        #Since this could eventually become a very time-consuming function, there are a few ways that the caller can bound the function:
+        #   Calling the stop_clean() function will set a flag that stops the cleaning loop at the beginning of the next iteration
+        #   The 'timer' arguement will limit the function to run only a specificed integer number of 'wall time' seconds have passed
+        #   The 'num_ids' argument will limit the function to limit the number of parsenums that are cleaned
+
+        #Define a function to create keywords for the ts_dict, this way in the future if I need to change this logic, I can just apply here and it 
+        #will change for everwhere
+        
+        if leaguenum is None and start_id is None and num_ids is None:
+            input("Using default values for dev, if not ok then exit rn!")
+            leaguenum = 7
+            start_id = 341
+            num_ids = 30
+
+        #########Validating arguments############
+
+        #If there is neither a leaguenum nor start_id then the function doesnt know where to look/start
+        if leaguenum is None and start_id is None:
+            print("Not enough arguments for the function, need either leaguenum or start_id at least!")
+            return 0, "000"
+
+        #Validate leaguenum is valid
+        if leaguenum is not None:
+
+            valid = False
+            existing_leaguenums = self.read_query(f"SELECT DISTINCT league_num FROM scrape_data WHERE my_status = 1;")
+            for num in existing_leaguenums:
+                if leaguenum == num[0]:
+                    valid = True
+                    break
+            if not valid:
+                print(f"ex lgs:\n{existing_leaguenums}")
+                print(f"001 - invalid leaguenum: {leaguenum}")
+                return 0, "001"
+
+        #Validate start_id and confrim it does not conflict with leaguenum passed in 
+        if start_id is not None:
+            
+            if isinstance(start_id,int) is False:
+                print(f"Start_id = {start_id}")
+                print("002 - Start_id must be an int")
+                return 0, "002"
+            
+            temp_id = self.read_query(f"SELECT league_num FROM scrape_data WHERE id = {start_id};")
+
+            if len(temp_id) == 0:
+                print(f"022 - Start data has no entries in the db: {start_id}")
+                return 0, "022"
+            
+            temp_id = temp_id[0][0]
+
+            if leaguenum is None:
+                print("Inferred leaguenum from start_id")
+                leaguenum = temp_id
+
+            elif leaguenum != temp_id:
+                print(f"{leaguenum}\t{temp_id}")
+                print("012 - Leaguenum and start_id are for different leagues")
+                return 0, "012"
+            
+        #If no start id is given to the function then go into the DB and find the oldest uncleaned parse for the given leaguenum
+        else:
+            temp_id = self.read_query(f"SELECT id FROM scrape_data WHERE league_num = {leaguenum} AND is_cleaned = 0 AND my_status = 1 ORDER BY id ASC LIMIT 1;")
+            if len(temp_id) == 0:
+                print(f"ids = {temp_id}")
+                print("022 - Cannot find parsenum to start cleaning with")
+                return 0, "022"
+            
+            #set start id to the correct one based on this query
+            start_id = temp_id[0][0]
+        
+        #Validate num_ids is expected
+        if (num_ids is not None) and (isinstance(num_ids,int) is False or num_ids <= 0) :
+            print(f"003 - Num_ids must be an int >= 1: {num_ids}")
+            return 0, "003"
+
+        ###############Setting up variables for controling how long the function goes for############
+
+        self._is_cleaning = True
+
+        if timer is not None:
+            if isinstance(timer,int) is False:
+                '''---Post some error for this?---'''
+                print("Value for timer is invalid, must be an int or None")
+                return 0, "004"
+            timer = datetime.now() + timedelta(seconds=timer)
+        else:
+            timer = datetime.max
+
+        ############Fill up ts_dict with what the last values were for each projection in the start_id###########
+
+        #get all the projection ids within the initial scope of the cleaning
+        ids = self.read_query(f"SELECT DISTINCT projection_id FROM projection_timeseries WHERE parsenum = {start_id};")
+
+        if len(ids) == 0:
+            print("Warning - there are no entries for this parsenum. May yield unexpected results...")
+            print("Need to add a way to recover from this in the case there is truly data in the db from prior")
+            all_ts = []
+
+        #Pull in all the data from the DB for the interested timeseries
+
+        else:
+            all_ts = self.read_query(f"""
+            SELECT * 
+            FROM projection_timeseries 
+            WHERE parsenum < {start_id} 
+            AND projection_id in ({','.join([str(proj_id[0]) for proj_id in ids])}) 
+            ORDER BY parsenum DESC;
+            """)
+
+        #create dict to see what the latest value for a given projection is
         '''
-        This function will be responsible for perfroming occasional cleanup of the DB as-needed. the primary use case for this is to clean the
-        timeseries data tables. Since these data points are added no matter what during the scraping process, in the likely case where the spreads are
-        not changing much, there would be tons of redundant data in the timeseries table adding tons of bloat to something that I cannot afford to let
-        expand infinitley.
-
-        In the future other things may be added to this for other administrative/cleaning things. But for now, the timeseries cleanups are the main
-        priority.
+        Once dev is complete, I need to add a way to track cases where the projection is not updated for a long time. If the number of scrapes is long
+        enough, this dict could get really big and be storing a bunch of data that will never be used/checked again. Either a paralell dict or another
+        value in the stored data to count the last parse this projection was seen should do it, but since each entry in the dict is relativley small
+        I think this is not a top concern right now
         '''
+        ts_dict = dict()
+        for data_point in all_ts:
+            kw = self._create_keyword(data_point)
+            if kw not in ts_dict:
+                ts_dict[kw] = data_point
+        
+        for k,v in list(ts_dict.items())[:min(len(ts_dict),25)]:
+            print(f"{k}\t{v[2]}")
+        
+        print("Stopping before the big loop")
+        return
+
+        ##############create list of all the parsenums that I need to check for timeseries data in#############
+        prsenm_qury = f"SELECT DISTINCT parsenum FROM scrape_data WHERE id >= {start_id} and league_num = {leaguenum} ORDER BY parsenum ASC"
+        add_lmt = ";" if num_ids is None else f"LIMIT {num_ids};"
+        parsenums = self.read_query(prsenm_qury+add_lmt)
+
+
+        #############Loop through each of the parsenums and check if any of the entries need to be removed#############
+        for i, parsenum in enumerate(parsenums):
+            
+            #############Check to see if external caller requested to stop the loop or if allowed time has expired#############
+            if self._is_cleaning is False:
+                print("Someone asked the loop to stop, exiting...")
+                return i, parsenum
+            if datetime.now() > timer:
+                print("Timer has expired, exiting loop")
+                return i, parsenum
+
+            ###########Go through each of the data points in the parsenum and check to see if they are redundant#############
+            #create list to store all the data to delete and pull all timeseries data for the current parse
+            delete_info = []
+            parse_data = self.read_query(f"SELECT * FROM projection_timeseries WHERE parsenum = {parsenum}")
+
+            #loop through all the data points from a given parsenum and check if they need to be deleted or not
+            for data_point in parse_data:
+                kw = self._create_keyword(data_point)
+                ex_data = ts_dict.get(kw)
+                #if there is nothing in the dict already, then it cant be duplicate and can safely be added, nothing else to do
+                if ex_data is None:
+                    ts_dict[kw] = data_point
+                #if the existing data is already in the dict then the new data point can safely be deleted as redundant
+                elif ts_dict[kw][2] == data_point[2]:
+                    delete_info.append(data_point)
+                #anything else means the data point has changed, so the dict needs to be updated with the new value
+                else:
+                    ts_dict[kw] = data_point
+
+            #############Go through all the info marked as redundant and delete it#############
+            #This batch size is not scientific, I just picked one that seems to work. I'm not sure what the limitations are of this. Something to 
+            #investigate in the future to optimize.
+            print(f"Deleting {len(delete_info)} entries")
+            batch_size = 50
+            delete_query = ""
+            if len(delete_info) > 0:
+                print("Before...")
+                check0 = f"SELECT * FROM projection_timeseries WHERE projection_id = {delete_info[0][0]} AND name = '{delete_info[0][1]}' AND parsenum = {delete_info[0][3]};"
+                print(self.read_query(check0))
+                check1 = f"SELECT * FROM projection_timeseries WHERE projection_id = {delete_info[-1][0]} AND name = '{delete_info[-1][1]}' AND parsenum = {delete_info[-1][3]};"
+                print(self.read_query(check1))
+                print()
+
+            row_idfiers = []
+            delete_query = f"DELETE FROM projection_timeseries WHERE projection_id = %s AND name = %s AND parsenum = %s;"
+            for j in range(len(delete_info)):                
+                row_idfiers.append([delete_info[j][0], delete_info[j][1], delete_info[j][3]])
+
+            batch_num = 0
+            for batch_num in range( int((len(row_idfiers) / batch_size ))):
+                start = batch_num*batch_size
+                end = (batch_num+1)*batch_size
+                print(f"Deleting batchnum = {batch_num}. s={start} e={end}")
+                self._sql_cursor.executemany(delete_query, row_idfiers[start:end])
+            
+            batch_num+=1
+            print(f"Deleteing last batch. Batchnum = {batch_num}")
+            self._sql_cursor.executemany(delete_query, row_idfiers[start:-1])
+
+            ##############update that this parsenum has been cleaned and commit all the changes#############
+            self._sql_cursor.execute(f"UPDATE scrape_data SET is_cleaned = 1 WHERE id = {parse_id[0]};")
+            self._sql_conn.commit()
+            if len(delete_info) > 0:
+                print("After...")
+                print(self.read_query(check0))
+                print(self.read_query(check1))
+                print()
+
+    
+    def new_clean_db(self, timer = None, num_ids = 30, leaguenum = 7, start_id = 341):
+        #Function to facilitate cleaning of redundant data in the timeseries tables. Since these data points are added no matter what after parsing, 
+        #there is a lot of times where data is stored when it doesnt need to because nothing is changing, so this function is meant to be run 
+        #periodically to reduce bloat in the timeseries tables of the database.
+
+        #Since this could eventually become a very time-consuming function, there are a few ways that the caller can bound the function:
+        #   Calling the stop_clean() function will set a flag that stops the cleaning loop at the beginning of the next iteration
+        #   The 'timer' arguement will limit the function to run only a specificed integer number of 'wall time' seconds have passed
+        #   The 'num_ids' argument will limit the function to limit the number of parsenums that are cleaned
 
         '''
-        There could also be some threading going on here where different threads could each be cleaning parsenums for various leagues at the same time.
-        This seems like it may be a bit complicated, but would be cool to come back and do in the future!
+        Functionality should be added to this to make the function more efficient. This function should be able to run just on a specific leaguenum 
+        and/or use the fact that the function returns the parsenum it ended off with to make sure that is what the function starts with next time 
+        rather than have to query the db to get the id to start with.
         '''
+        
+        #Setting up variables for bounding the function
+        self._is_cleaning = True
 
-        #Cleaning implementation:
+        if timer is not None:
+            if isinstance(timer,int) is False:
+                '''---Post some error for this?---'''
+                print("Value for timer is invalid, must be an int or None")
+                return 0, None
+            timer = datetime.now() + timedelta(seconds=timer)
+        else:
+            timer = datetime.max
+        if num_ids is not None:
+            if isinstance(num_ids, int) is False or num_ids < 1:
+                print("Value for num_ids is invalid, must be a positive int or None")
+                return 0, None
 
-        #arguments - gnerally to bound the process. As this get bigger and bigger, need to make sure the code doesnt waste a bunch of time thinking about cleaning things which have already been cleaned:
-            #Last time the cleaning was performed
-            #A time, in seconds, to define how long the cleaner has
+                # Set isolation level to READ UNCOMMITTED for this transaction
+        
+        '''---DELETE THIS AFTER IMPLEMENTATION IS VALIDATED---'''
+        #self._sql_cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
+        #self._sql_cursor.execute("START TRANSACTION")
+        #input("MODIFYING SESSION, IF NOT INTENDED THEN THAT IS A PROBLEM!!!!")
 
-        #retun value:
-            #true if everything is completed in the time given to it
-            #a parse number so that caller knows where it left off ( I wonder if this needs to be stored somewhere in the db too)
-
-        #Psuedocode:
-
-        #get the last parse num that was cleaned (either from caller or based on what is stored in the db)
-            #I wonder if abool in the parsenum table should just be added to mark whether it has been cleaned or not, this way it is always obvious
-            #to the class where to pick back off. Status can be sent back to the caller so they know if more cleaning or time needs to be allotted
-
+        #getting old data from the db from before the first parsenum so that any comparisons made are valid
+        print("Getting old data from the DB")
         #id_list = get a list of all the parse nums which have happened since the last one cleaned - ordered first->last
+        id_list = self.read_query(f"SELECT id FROM scrape_data WHERE league_num = {leaguenum} AND my_status = 1 AND is_cleaned = 0 AND id > {start_id} ORDER BY store_time ASC;")
+        #print(f"id_list:\n{id_list}")
+        
+        print("Finding next good parse_id")
+        start_id_index = 0
+        seed_data = self.read_query(f"SELECT * FROM projection_timeseries WHERE parsenum = {id_list[start_id_index][0]}")        
+        while len(seed_data) == 0:
+            #If for some reason there was nothing logged on this, then keep increasing the number until the nex one which has entries
+            start_id_index += 1
+            seed_data = self.read_query(f"SELECT * FROM projection_timeseries WHERE parsenum = {id_list[start_id_index][0]}")
 
-        #seed_data = pull in all of the timeseries data for the first parsenum in the list (this will include projection ids in the same rows)
+        #Then we need to go through all the entries in the list and find any data that already exists for those projections, this is what we need to 
+        #compare against for the first parsenum in the list
+        last_entries = dict()
+        print("Building last entry from existing db data")
 
-        #pervious_data = get the latest piece of timeseries data for each of the projection ids (if they exist)
+        #Search for all the projection ids in the db and pull all that into memory sorted by parsenum
+        pids = set()
+        for each in seed_data:
+            pids.add(each[0])
+        print("Asking for all the data based on pids")
+        base_sql = "SELECT * FROM projection_timeseries "
+        where_clause = "" if pids is None else f"WHERE parsenum < {seed_data[0][3]} AND projection_id in ({','.join([str(pid) for pid in pids])}) ORDER BY parsenum DESC"
+        sql = base_sql + where_clause
+        all_ts = self.read_query(sql)
+        already_found = dict()
 
-        #delete_data = some object which stores enough data to make sure all the redundant data is eventually removed
+        print("determining latest ts values we are interested in...")
+        for data in all_ts:
+            #Loop through all of the timeseries data sent from the db. Since it is already sorted, this can just be done lineraly with the assumption 
+            #that if nothing is already there, then that must be the most recent data point for that series
+            '''
+            Perhaps this can be further improved in the future, but for now I'm not worrying about it as long as it is fast enough
 
-        #stop_condition = False
+            This request assumes that each parsenum will only increase over time which may not always be true, but for now I'm ok assuming this
+            '''
+            kn = f"{data[0]}_{data[1]}"
+            already_found = last_entries.get(kn)
 
-        #i, id = enumerate through each of the parse nums from id_list:
+            if already_found is None:
+                last_entries[kn] = [data[2]]
+
+        #helper.print_dict(last_entries)
+
+        #################DONE GETTING OLD DATA#################
+
+        #Create dict to eventually compare the before and after
+        #pre_dict = self._build_dict(leaguenum, num_ids, start_id)
+
+        id_list = self.read_query(f"SELECT id FROM scrape_data WHERE league_num = {leaguenum} AND my_status = 1 AND is_cleaned = 0 AND id > {start_id} ORDER BY store_time ASC;")
+        ts_dict = last_entries
+        delete_info = list()
+        interested = set()
+        
+        for i, parse_id in enumerate(id_list[start_id_index:]):
+            #Loop through each of the parse ids and compare with whatever the latest is in the DB. If it is the same, then add it to the delete pile 
+            #to be removed
+
+            #check if stop condition is met, if so, Return last cleaned parsenum and how many parsenums were cleaned
+            if self._is_cleaning is False:
+                print("Stopping cleaning loop externally")
+                return i, parse_id
+            elif datetime.now() > timer:
+                print("Cleaning timer expired")
+                return  i, parse_id
+            elif i == num_ids:
+                print("Cleaning id limit reached")
+                break
+                return i, parse_id
+
+            '''---Improve speed of how this is being queried---'''
+            parse_data = self.read_query(f"SELECT * FROM projection_timeseries WHERE parsenum = {parse_id[0]}")
             
-            #check if stop condition is met (or flag is triggered)
-                #if so, 
-                # print that the function is wrapping up
-                # store the parsed num the function is currently on
-                # break from the 
+            #Check to make sure data was actually parsed before comparing, if not, then that comparison is invalid must be skipped
+            if len(parse_data) == 0:
+                continue
 
-            #clean_dict = (i%10 == 0)
+            delete_info.clear()
+            for row in parse_data:
+
+                kn = f"{row[0]}_{row[1]}"
+                if kn == "5014468_rank":
+                    print(row)
+                temp_series = ts_dict.get(kn)
+                if temp_series is None:
+                    ts_dict[kn] = [row[2]]
+                else:
+                    if ts_dict[kn][-1] == row[2]:
+                        if len(interested) < 30 and kn not in interested:
+                            interested.add(kn)
+                        delete_info.append(row)
+                    else:
+                        temp_series.append(row[2])
+        
+            #This batch size is not scientific, I just picked one that seems to work. I'm not sure what the limitations are of this. Something to 
+            #investigate in the future to optimize.
+            print(f"Deleting {len(delete_info)} entries")
+            batch_size = 50
+            delete_query = ""
+            if len(delete_info) > 0:
+                print("Before...")
+                pre_del = f"SELECT * FROM projection_timeseries WHERE projection_id = {delete_info[0][0]} AND name = '{delete_info[0][1]}' AND parsenum = {delete_info[0][3]};"
+                print(self.read_query(pre_del))
+                pre_del = f"SELECT * FROM projection_timeseries WHERE projection_id = {delete_info[-1][0]} AND name = '{delete_info[-1][1]}' AND parsenum = {delete_info[-1][3]};"
+                print(self.read_query(pre_del))
+                print()
+
+            row_idfiers = []
+            delete_query = f"DELETE FROM projection_timeseries WHERE projection_id = %s AND name = %s AND parsenum = %s;"
+            for j in range(len(delete_info)):                
+                row_idfiers.append([delete_info[j][0], delete_info[j][1], delete_info[j][3]])
+
+            batch_num = 0
+            for batch_num in range( int((len(row_idfiers) / batch_size ))):
+                start = batch_num*batch_size
+                end = (batch_num+1)*batch_size
+                print(f"Deleting batchnum = {batch_num}. s={start} e={end}")
+                self._sql_cursor.executemany(delete_query, row_idfiers[start:end])
             
-            #if clean_dict:
-                #id_set = set of all the ids in the previous_data dict
+            batch_num+=1
+            print(f"Deleteing last batch. Batchnum = {batch_num}")
+            self._sql_cursor.executemany(delete_query, row_idfiers[start:-1])
 
-            #newer_data = pull in all of the timeseries data for the current parsenum in the list (this will include projection ids in the same rows)
+            #update that this parsenum has been cleaned and commit all the changes
+            #self._sql_cursor.execute(f"UPDATE scrape_data SET is_cleaned = 1 WHERE id = {parse_id[0]};")
+            self._sql_conn.commit()
+            
+            exit()
+        
+        #print("Printing full TS dict:")
+        #helper.print_dict(ts_dict)
+        #input("How does this look?")
 
-            #for data_row in newer_data:
+        my_series = self.read_query("SELECT * FROM projection_timeseries WHERE projection_id = 5014468 AND name = \"rank\" ORDER BY parsenum ASC")
+        print(f"Example series:\n{my_series}\n")
+        print("Creating dict after the deletions...")
 
-                #remove row's id from the id_set
-
-                #if data for the same id is the same, then store data needed to delete the newer entry in delete_data (will be executed later)
-
-                #if data is different, then update the previous_data object with the newer data
-
-                #if the id does not exist in the dict at all, then add it!
-
-            #if clean_dict:
-                #for id in id_set:
-                    #del previous_data[id]
-
-        #Delete whatever is needed from the db with info in the delte_data object
-
-        #Go through all the parsenums which have been fully cleaned and mark them as such in the db
-
-        #if stop_condition is false: return True
-        #else: return the parse num of where the function left off
-
-
-        print("Not implemented yet, doing nothing and returning good status!")
-        return True
+        '''post_dict = self._build_dict(leaguenum, num_ids, start_id)
+        print("Pre example:")
+        for key in interested:
+            print(f"{key} : {pre_dict[key]}")
+        print("\n------Post example---------\n")
+        for key in interested:
+            print(f"{key} : {post_dict[key]}")
+        print("\nActual TS dict:\n")
+        for key in interested:
+            print(f"{key} : {ts_dict[key]}")'''
