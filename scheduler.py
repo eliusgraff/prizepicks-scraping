@@ -7,6 +7,7 @@ import threading
 import time
 import my_parser
 import bisect
+import sys, traceback
 
 class prizepicks_scheduler:
     
@@ -150,7 +151,7 @@ class prizepicks_scheduler:
 
     def run_scheduler(self, runtime_mins = 0):
         #this is the main function which will be called by the user to run the scheduler. This handles the runtime the user specifies.
-        
+
         #If runtime is negative, then nothing to do, raise an error
         if runtime_mins < 0:
             raise ValueError("Runtime minutes must be a non-negative number.")
@@ -192,6 +193,7 @@ class prizepicks_scheduler:
 
         webpage = scrape_data[0]
         scrape_id = scrape_data[1]
+
         wp_data = my_parser.parse_webpage(webpage, self._db_obj)
         
         #logging errors posted from parsing fucntion
@@ -211,6 +213,7 @@ class prizepicks_scheduler:
         #If no errors are found, then send the data to the database
         else:
             '''---Perhaps log the sql status rather than print it out?---'''
+            print("Scrape completed, sending to DB...")
             print(f"SQL status: {self._db_obj.send_to_sql(wp_data, scrape_id)}")
             consec_errors = 0
         
@@ -350,6 +353,7 @@ class prizepicks_scheduler:
 
     def _schedule_loop(self):
         #this is the loop which will schedule the commands to be executed. This will run until the _stop_loop flag is set to true.
+        
         self._stop_loop = False
         min_time_to_wait = 5 #in seconds to avoid spamming the API with requests and being detected
 

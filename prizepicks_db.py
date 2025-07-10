@@ -154,7 +154,9 @@ class prizepicks_db:
         assert isinstance(parsed_data_obj, parsed_data)
 
         #Sends values parsed into the projection table
+        print("Sending Parsed Projection data to db")
         self._send_to_projection_table(parsed_data_obj.data_order, parsed_data_obj.data_values, scrape_id)
+        print("Sending included data to db")
         self._send_included_data(parsed_data_obj.included_tag_values, scrape_id)
         
         #Commits changes made during above functions
@@ -194,10 +196,9 @@ class prizepicks_db:
         
         return (mysql_map, dt_indexes, translated_headers)
 
-    def _get_existing_data(self, data, table, id_index):
+    def _get_existing_data(self, table, id_list):
         
         #Pull in all incoming row ids so db can be queried for existing rows
-        id_list = tuple(values[id_index] for values in data)
         my_len = len(id_list)
         if my_len == 0:
             print(f"No data to add for {table}. Returning empty list.")
@@ -206,14 +207,13 @@ class prizepicks_db:
             id_list = f"({id_list[0]})"
         return self.read_query(f"SELECT * FROM {table} WHERE ID IN {id_list};")'''
     
-    
         #build SQL query to get existing data from the db for the ids to compare with
         base_sql = f"SELECT * FROM {table} "
         where_clause = "" if id_list is None else f"WHERE ID in ({','.join([str(data_id) for data_id in id_list])})"
         sql_query = base_sql + where_clause
         return self.read_query(sql_query)
 
-    def _add_timeseries(self, headers, incoming_row, row_id, scrape_id):
+    def _add_timeseries(self, headers, incoming_row, row_id, scrape_id, last_values):
         #Function to create timeseries entires for each entry in the incoming row if it exists
         #If timeseries data does exist in the incoming row, then the row which must be added to the
         #mysql is returned
@@ -228,6 +228,7 @@ class prizepicks_db:
             except ValueError:
                 input(f"Cant find {timeseries} in headers list. Is that ok?")
                 continue
+            input(f"Figure out how to turn this into the kw for dict to keep track of latest values Incoming row: {incoming_row}")
             if  incoming_row[ts_index] is not None:
                 timeseries_list.append([row_id, timeseries, incoming_row[ts_index], scrape_id])
 
@@ -244,6 +245,36 @@ class prizepicks_db:
         
         return change_list
     
+    def _get_last_values(self, proj_ids):
+
+        #Pull in all the data from the DB for the interested timeseries
+
+        '''
+        Need to consider if there is a more efficient way to do this than check everying in the DB for all the projections. Currently limiting the
+        result to just the first 3 x (len of PROJ_TIMESERIES_LIST) x (len of ids). This way I think it covers cases which may come up where a 
+        projection is dropped from a parse for some reason or if the prior parse had many more entries than the current one AND COUNTS FOR MULTIPLE 
+        TIMESERIES WITHIN EACH DATA POINT I don't know if either of these cases are valid or possible since I don't control what prizepicks does, but
+        for now I'm assuming they are possible scenarios.
+        '''
+        print("Getting last values")
+        my_q =f"""
+        SELECT * 
+        FROM projection_timeseries 
+        WHERE projection_id in ({','.join([str(proj_id) for proj_id in proj_ids])}) 
+        ORDER BY parsenum DESC LIMIT {3 * len(self.PROJECTION_TIME_SERIES) * len(proj_ids)};
+        """
+        all_ts = self.read_query(my_q)
+        print("Read query")
+        #create dict to see what the latest value for a given projection is
+        ts_dict = dict()
+        for data_point in all_ts:
+            kw = self._create_keyword(data_point)
+            if kw not in ts_dict:
+                ts_dict[kw] = data_point
+        print("Dict created")
+
+        return ts_dict
+
     @log_perf
     def _send_to_projection_table( self, headers, data, scrape_id):
         #Function which will send passed in data into the 'data' table of the local mySQL database
@@ -271,22 +302,31 @@ class prizepicks_db:
         table = 'projection'
         id_index = headers.index("id")
 
-        #Pull into memory any data which may already be in the db to compare/update against
-        existing_data = self._get_existing_data(data, table, id_index)
+        #tuple of all the projection ids of the incoming data
+        new_proj_ids = tuple(values[id_index] for values in data)
+
+        #Pull into memory any data already be in the db to compare/update against
+        existing_data = self._get_existing_data(table, new_proj_ids)
 
         #Call function to map the incoming data to the order that the db requires
         mapping, dts, translated_headers = self._create_col_ordering(headers, table)
         
-        #Create dictionary where the key is the row id and the value is the row of existing dat in the mysql db. This will be used to 
+        #Create dictionary where the key is the row id and the value is the row of existing data in the mysql db. This will be used to 
         #check for if any rows need to be updated
         data_dict = dict()
         for row in existing_data:
             data_dict[row[id_index]] = row
 
+        #Create dict to keep track of the latest values of the timeseries parsed from the projection data. This will dictate whether a new data point 
+        # hould be added to a timeseries or not
+        last_values = self._get_last_values(new_proj_ids)
+
         #This loops through each of the incoming data rows to determine what changes need to be made in the db. Any changes that need to be made, the necessary 
         #data to do that is added to the insert, update, or timeseries list as apropriate. These lists are then executed in batches into the db to make it fast
-        for incoming_row in data:
-            
+        print("Going into loop")
+
+        for i,incoming_row in enumerate(data):
+            print(f"Processing row {i}")
             #Map the data from the incoming row into a temp row so that it can be compared against whatever is already in the db in the correct order/format
             temp_row = list()
             row_id = incoming_row[id_index]
@@ -298,6 +338,7 @@ class prizepicks_db:
                     temp_row.append(incoming_row[i])
                 else:
                     temp_row.append(None)
+            print("Mapping added")
 
             #Converts any datetimes to datetime objects of the same format so their comparison is valid
             for i in dts:
@@ -305,6 +346,8 @@ class prizepicks_db:
                     my_dt = datetime.fromisoformat(temp_row[i])
                     utc_dt = my_dt.astimezone(timezone.utc)
                     temp_row[i] = utc_dt.replace(tzinfo=None)
+            print("dt converted")
+
 
             #------Beginning comparison and adding necessary data to correct lists to make updates------
 
@@ -324,8 +367,11 @@ class prizepicks_db:
                     change_list += changes
                     update_list.append(temp_row)
 
+            print(" data added")
+
             #Call function to add any timeseries data to the timeseries list if it exists in the incoming row
-            timeseries_list += self._add_timeseries(headers, incoming_row, row_id, scrape_id)
+            timeseries_list += self._add_timeseries(headers, incoming_row, row_id, scrape_id, last_values)
+            print("ts updated")
 
         
         #Function which makes batch requests for the 3 tables to be updated
@@ -414,6 +460,7 @@ class prizepicks_db:
             print(row)
         raise Exception("SQL Error found, please review")
 
+    #Function within the class to handle all the reads to the DB
     def read_query(self, query):
         
         try:

@@ -113,5 +113,5 @@ if __name__ == "__main__":
     Eventually, this will be the code that is the manager for the scraper that keep running all the time
     '''
     s = sch()
-    s.run_scheduler(0.25)
+    s.run_scheduler(120)
     del s
