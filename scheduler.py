@@ -7,7 +7,6 @@ import threading
 import time
 import my_parser
 import bisect
-import sys, traceback
 
 class prizepicks_scheduler:
     
@@ -31,16 +30,12 @@ class prizepicks_scheduler:
     default_req_rate = 300 # five min in seconds
     min_req_rate = 86400 # one day in seconds
     max_req_rate = 60 # one min in seconds
-    
-    default_clean_rate = 86400 # one day in seconds
-    min_clean_rate = 86400 # one day in seconds
-    max_clean_rate = 36000 # ten hours in seconds
 
     def __init__(self):
         #Constructor for the scheduler class. This will load the queue from a file if it exists, otherwise it will create a default queue.
         if not os.path.isfile(self.scheduler_filename):
             print(f"Scheduler file not found. Creating queue from defaults.")
-            self._default_queue()
+            self._create_default_queue()
         else:
             self._load_queue_data()
             print(f"Loaded queue from file: {self.scheduler_filename}")
@@ -63,13 +58,15 @@ class prizepicks_scheduler:
         with open (self.scheduler_filename, 'rb') as scheduler_file:
             saved_q_data = pickle.load(scheduler_file)
         
-        #set the queue and rates from the saved data
-        self.schedule_rates = saved_q_data.rates
-        self.cmd_q = saved_q_data.queue
+            #set the queue and rates from the saved data
+            self.schedule_rates = saved_q_data.rates
+            self.cmd_q = saved_q_data.queue
 
         #validate that the saved queue and rates are valid. If not, then reset everything to default
         if not self._assert_queue() or not self._assert_rates():
             '''---Post an error here---'''
+            self._print_q_status()
+            input ("Error! Either the q is bad or the rates are bad.")
             print(self.cmd_q)
             print("Saved queue or rates are not valid. Resetting to defaults.")
             self._create_default_queue()
@@ -77,14 +74,9 @@ class prizepicks_scheduler:
     def _assert_rates(self):
         #function simply to check if all the rates are valid. If not, returns false. otherwise returns true.
         for req_type, rate in self.schedule_rates.items():
-            #Make sure that cleaning is happening at an acceptable rate
-            if req_type == "clean":
-                if rate < self.max_clean_rate or rate > self.min_clean_rate:
-                    print(f"Cleaning rate is not within bounds.")
-                    return False
             
             #Make sure that the requests are all being made at an acceptable rate
-            elif req_type in self.known_leagues:
+            if req_type in self.known_leagues:
                 if rate < self.max_req_rate or rate > self.min_req_rate:
                     print(f"Request rate for {req_type} is not within bounds")
                     return False
@@ -97,7 +89,7 @@ class prizepicks_scheduler:
         #Function which returns true if the queue is valid, false otherwise.
 
         #Set up objects for tracking what is expected and what is still valid
-        queue_items = set(self.known_leagues).union({"clean"})
+        queue_items = set(self.known_leagues)
         remaining_items = set(queue_items)
 
         for each in self.cmd_q:
@@ -124,7 +116,7 @@ class prizepicks_scheduler:
             #If time to execution is further away than the minimum request rate, then that is not valid
             time_to_exec = each[0] - datetime.now(timezone.utc)
             sec_to_exec = time_to_exec.total_seconds()
-            if (each[1] in self.known_leagues and sec_to_exec > self.min_req_rate) or (each[1] == "clean" and sec_to_exec > self.min_clean_rate):
+            if each[1] in self.known_leagues and sec_to_exec > self.min_req_rate :
                 print("Too far in future")
                 return False
             
@@ -133,13 +125,11 @@ class prizepicks_scheduler:
         return True
 
     def _create_default_queue(self):
-        #Create queue using all of the default rates for the known leagues and cleanging
+        #Create queue using all of the default rates for the known leagues
+        self.cmd_q = list()
         for league in self.known_leagues:
             self.cmd_q.append((datetime.now(timezone.utc), league))
             self.schedule_rates[league] = self.default_req_rate
-
-        self.cmd_q.append((datetime.now(timezone.utc) + timedelta(seconds=self.default_clean_rate), "clean"))
-        self.schedule_rates["clean"] = self.default_clean_rate
 
     def stop_scheduler(self):
         #Function to stop the scheduler loop. This will set the stop flag to true and then wait for the loop to finish next time it is able. Function
@@ -337,7 +327,7 @@ class prizepicks_scheduler:
         if data is not None:
             #today the function only needs the game data, so just send what the fucntion needs
             self._update_req_freq(cmd_type, data.included_tag_values.get('game'))
-
+        
         bisect.insort(self.cmd_q, (datetime.now(timezone.utc) + timedelta(seconds=self.schedule_rates[cmd_type]), cmd_type))
         self.cmd_q.pop(0)
 
@@ -373,11 +363,8 @@ class prizepicks_scheduler:
 
                 cmd_type = nxt_cmd[1]
                 status = False
-                if cmd_type == "clean":
-                    print("Executing db cleaning")
-                    status = self._db_obj.clean_db()
 
-                elif cmd_type in self.known_leagues:
+                if cmd_type in self.known_leagues:
                     print(f"Executing command {cmd_type}")
                     status, data = self._scrape_prizepicks_data(cmd_type)
 
@@ -399,7 +386,7 @@ class prizepicks_scheduler:
             #Tell the loop to sleep until either the next wakeup time or the next command execution time.
             #I do put a limit on here that the loop will not sleep for less than 5 seconds, to avoid spamming the API.
             sleep_time = min( self.loop_wakeup_time,max( min_time_to_wait,sec_to_exec ) )
-            print(f"Sleep time: {sleep_time} sec")
+            print(f"Sleep time: {sleep_time} sec. Time = {datetime.now().strftime("%H:%M:%S")}")
             try:
                 time.sleep( sleep_time )
             except KeyboardInterrupt:
@@ -410,23 +397,12 @@ class prizepicks_scheduler:
         #If loop is gracefully broken out of, then reset the stop flag so it can be restarted without issue if needed
         self._stop_loop = False
         return True
-
-    def _clean_db(self):
-        self._db_obj.clean_db()
-        print("*****1 done******")
-        self._db_obj.clean_db(start_id = 355)
-        print("*****2 done******")
-        self._db_obj.clean_db(leaguenum = 7)
-        print("*****3 done******")
-        self._db_obj.clean_db(start_id = 341, leaguenum=7)
-        print("*****4 done******")
-        self._db_obj.clean_db(start_id = 642, leaguenum=7)
-        print("*****5 done******")
-        self._db_obj.clean_db(leaguenum = 8)
-        print("*****6 done******")
-        self._db_obj.clean_db(start_id = 261)
-        print("*****7 done******")
-
+    
+    def _purge_q(self, name):
+        for cmd_name in self.cmd_q:
+            if cmd_name[1] == name:
+                self.cmd_q.remove(cmd_name)
+                print(f"Removed {cmd_name} from queue")
 
     #class to hold all the relevant queue data from scheduler class when it is destructed. this way the data persists even if the class is deleted
     class _queue_data:
