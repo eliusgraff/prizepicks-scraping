@@ -386,7 +386,7 @@ class prizepicks_scheduler:
             #Tell the loop to sleep until either the next wakeup time or the next command execution time.
             #I do put a limit on here that the loop will not sleep for less than 5 seconds, to avoid spamming the API.
             sleep_time = min( self.loop_wakeup_time,max( min_time_to_wait,sec_to_exec ) )
-            print(f"Sleep time: {sleep_time} sec. Time = {datetime.now().strftime("%H:%M:%S")}")
+            print(f"Sleep time: {sleep_time} sec. Time = {datetime.now().strftime('%H:%M:%S')}")
             try:
                 time.sleep( sleep_time )
             except KeyboardInterrupt:

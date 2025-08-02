@@ -56,14 +56,12 @@ class prizepicks_db:
     ]
     _sql_conn = None
     _sql_cursor = None
-    _sql_buffered_cursor = None
     _external_data_names = dict()
     _is_cleaning = False
 
     def __init__(self):
         self._sql_conn = self._create_db_connection()
         self._sql_cursor = self._sql_conn.cursor()
-        self._sql_buffered_cursor = self._sql_conn.cursor(buffered = True)
         self._set_external_data_names()
         self._is_cleaning = False
 
@@ -217,9 +215,6 @@ class prizepicks_db:
         #Function to create timeseries entires for each entry in the incoming row if it exists
         #If timeseries data does exist in the incoming row, then the row which must be added to the
         #mysql is returned
-        '''print(hdr_order)
-        print(incoming_row)
-        input()'''
 
         timeseries_list = list()
         for timeseries in self.PROJECTION_TIME_SERIES:
@@ -234,18 +229,19 @@ class prizepicks_db:
                 new_value = incoming_row[ts_ind]
 
                 if last_value is None:
-                    #If there is not data for last value in the DB then this is not redundant and can be added in there
-                    print(f"Adding value for new kw :{kw} to timeseries")
+                    #If there is not data for last value in the DB then it can be added in there
+                    #print(f"Adding value for new kw :{kw} to timeseries")
                     last_values[kw] = new_value
                     timeseries_list.append([row_id, timeseries, incoming_row[ts_ind], scrape_id])
 
                 elif last_value[2] != new_value:
                     #if value has changed then add it to the timeseries list
-                    print(f"{last_value[2]} != {incoming_row[ts_ind]} adding this to db")
+                    #print(f"{last_value[2]} != {incoming_row[ts_ind]} adding this to db")
                     timeseries_list.append([row_id, timeseries, incoming_row[ts_ind], scrape_id])
                 else:
                     #If the data already exists then no need to add it again
-                    print(f"{last_value[2]} == {incoming_row[ts_ind]} skipping redundant info...")
+                    #print(f"{last_value[2]} == {incoming_row[ts_ind]} skipping redundant info...")
+                    pass
 
             else:
                 #if timeseries data does not exist in the incoming row, then just skip it
@@ -269,21 +265,15 @@ class prizepicks_db:
         #Pull in all the data from the DB for the interested timeseries and turn it into a dict
 
         '''
-        Need to consider if there is a more efficient way to do this than check everying in the DB for all the projections. Currently limiting the
-        result to just the first 3 x (len of PROJ_TIMESERIES_LIST) x (len of ids). This way I think it covers cases which may come up where a 
-        projection is dropped from a parse for some reason or if the prior parse had many more entries than the current one AND COUNTS FOR MULTIPLE 
-        TIMESERIES WITHIN EACH DATA POINT I don't know if either of these cases are valid or possible since I don't control what prizepicks does, but
-        for now I'm assuming they are possible scenarios.
-        '''
+        Need to consider if there is a more efficient way to do this than check everying in the DB for all the projections.
+            '''
         my_q =f"""
         SELECT * 
         FROM projection_timeseries 
         WHERE projection_id in ({','.join([str(proj_id) for proj_id in proj_ids])}) 
-        ORDER BY parsenum DESC LIMIT {3 * len(self.PROJECTION_TIME_SERIES) * len(proj_ids)};
+        ORDER BY parsenum DESC;
         """
-        #input(my_q)
         all_ts = self.read_query(my_q)
-        #input(all_ts)
         #create dict to see what the latest value for a given projection is
         ts_dict = dict()
         for data_point in all_ts:
@@ -301,13 +291,7 @@ class prizepicks_db:
          
         #    data - a list of lists where each sub-list is the list of data that is going into the database. The data point at each index is
         #        described by that same index of 'headers' list
-        #        ex: [
-        #            ['172250', 'Jude Bellingham', 'Midfielder', 'https://static.prizepicks.com/images/players/soccer/e83ula4wockmc2xid7185kcq2.webp', 'Jude Bellingham', False, 82, '3372'],
-        #            ['197873', 'Jyllissa Harris', 'Defender', 'https://static.prizepicks.com/images/teams/NWSL/Houston_Dash.webp', 'Jyllissa Harris', False, 82, '4156'],
-        #            ['171076', 'JÃ¸rgen Strand Larsen', 'Attacker', 'https://static.prizepicks.com/images/manual/JÃ¸rgen Strand Larsen.png', 'JÃ¸rgen Strand Larsen', False, 82, '3356'],
-        #            ['215896', 'Courtney Petersen', 'Defender', 'https://static.prizepicks.com/images/teams/NWSL/Racing_Louisville.webp', 'Courtney Petersen', False, 82, '4160']
-        #            ]
-        #    
+
         #    scrape_id - the id of the scrape that this data is coming from.
     
         insert_list = list()
@@ -338,9 +322,6 @@ class prizepicks_db:
         #Create dict to keep track of the latest values of the timeseries parsed from the projection data. This will dictate whether a new data point 
         # hould be added to a timeseries or not
         last_values = self._get_last_values(new_proj_ids)
-        '''for kw in last_values:
-            print(kw)
-        input("Check on this!!!")'''
 
         #This loops through each of the incoming data rows to determine what changes need to be made in the db. Any changes that need to be made, the necessary 
         #data to do that is added to the insert, update, or timeseries list as apropriate. These lists are then executed in batches into the db to make it fast
@@ -400,7 +381,7 @@ class prizepicks_db:
             timeseries_list += self._add_timeseries(headers, incoming_row, row_id, scrape_id, last_values)
             #print("ts updated")
         #input("Check the comparisons")
-        print(timeseries_list)
+        #print(timeseries_list)
         #input("review TS List")
 
         #Function which makes batch requests for the 3 tables to be updated

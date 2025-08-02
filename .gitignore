@@ -4,3 +4,4 @@ test files
 logs
 old_sql_schemas
 scheduler.pkl
+tstng.py

@@ -1,6 +1,7 @@
 import os
 import logging
 from time import perf_counter
+from datetime import datetime
 
 def log_perf(func):
 
@@ -26,18 +27,18 @@ def create_loggers():
     log_path = f"{str(curdir_path)}\\logs"
     if not os.path.isdir(log_path): 
         os.mkdir(log_path)
-    
+    cur_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     '''---Set up logger for perfromance---'''
     Performance_Log = logging.getLogger("perf")
     Performance_Log.setLevel("DEBUG")
     perf_file_handler = logging.FileHandler(f"{log_path}\\Performance.log")
     Performance_Log.addHandler(perf_file_handler)
-    Performance_Log.critical(f"-------NEW RUN STARTING-------")
+    Performance_Log.critical(f"-------NEW RUN STARTING {cur_time}-------")
     
     '''---Set up logger for errors---'''
     Error_Log = logging.getLogger("err_log")
     Error_Log.setLevel("ERROR")
     error_file_handler = logging.FileHandler(f"{log_path}\\Error.log")
     Error_Log.addHandler(error_file_handler)
-    Error_Log.critical(f"-------NEW RUN STARTING-------")
+    Error_Log.critical(f"-------NEW RUN STARTING {cur_time}-------")
 
