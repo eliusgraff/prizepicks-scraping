@@ -146,12 +146,16 @@ class prizepicks_db:
 
         return my_dict
 
+    '''---Add functionality to this function so it does something other than just return true all the time---'''
     def send_to_sql(self, parsed_data_obj, scrape_id):
         #Function called by app manager to send the parsed data to the local mySQL database
         
-        assert isinstance(parsed_data_obj, parsed_data)
+        if not isinstance(parsed_data_obj, parsed_data):
+            return 1
+        
         #Sends values parsed into the projection table
         if len(parsed_data_obj.data_values) == 0:
+            '''---Log this---'''
             print("No data to send to the DB, returning since there is nothing to do")
             return True
         self._send_to_projection_table(parsed_data_obj.data_order, parsed_data_obj.data_values, scrape_id)
@@ -626,3 +630,22 @@ class prizepicks_db:
         if len(row_data) < 2:
             assert len(row_data) > 1 , f"row_data must have at least 2 items to create a keyword. Row data: {row_data}"
         return f"{row_data[0]}_{row_data[1]}"
+
+    #This is the function which will be called periodically to retrieve stats for the size of the db to be logged over time
+    def get_stats(self):
+        
+        size_query = """
+        SELECT 
+            TABLE_NAME AS `Table`,
+            ROUND(((DATA_LENGTH + INDEX_LENGTH) / 1024 / 1024), 2) AS `Size (MB)`
+        FROM 
+            information_schema.TABLES
+        WHERE 
+            TABLE_SCHEMA = 'prizepicks'
+        ORDER BY 
+            (DATA_LENGTH + INDEX_LENGTH) DESC;
+        """
+
+        self._sql_cursor.execute(size_query)
+        result = self._sql_cursor.fetchall()
+        return result

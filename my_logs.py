@@ -1,5 +1,6 @@
 import os
 import logging
+from logging.handlers import RotatingFileHandler
 from time import perf_counter
 from datetime import datetime
 
@@ -18,7 +19,6 @@ def log_perf(func):
 def create_loggers():
 
     curdir_path = os.path.dirname(__file__)
-    '''----------------PERFORMANCE LOGGING------------------'''
     '''
     Conctructor sets up the logger that is used by the class to makes sure no matter how many different 
     classes use the log, that they all go to the same place
@@ -42,3 +42,18 @@ def create_loggers():
     Error_Log.addHandler(error_file_handler)
     Error_Log.critical(f"-------NEW RUN STARTING {cur_time}-------")
 
+    '''---Set up a status logger---'''
+    Status_Log = logging.getLogger("status_log")
+    Status_Log.setLevel("INFO")
+    status_file_handler = RotatingFileHandler(f"{log_path}\\Status.log", maxBytes=500000000, backupCount=10)
+    status_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+    Status_Log.addHandler(status_file_handler)
+
+    '''---Set up scheduler log---'''
+    sched_log = logging.getLogger("sched_log")
+    sched_log.setLevel("INFO")
+    sched_log_file_handler = RotatingFileHandler(f"{log_path}\\Scheduler.log", maxBytes=5000000, backupCount=3)
+    sched_log_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+    sched_log.addHandler(sched_log_file_handler)
+
+    return {"perf":Performance_Log, "err":Error_Log, "sts":Status_Log, "schd":sched_log}
