@@ -311,6 +311,24 @@ class prizepicks_scheduler:
         '''---REAllY REALLY REALLY NEED TO UPDATE THIS SO THAT ERRNUMS ARE RETURNED RATHER THAN JUST CATCHING EVERYTHING---'''
         try:
             wp_data = my_parser.parse_webpage(webpage, self._db_obj)
+
+        except Exception as e:
+            #Since there is no meaningful error codes in teh parsing and sql modules today, I'm just going to catch everything and log it all so that 
+            #I can try and troubleshoot the issue for the time being before I try and go back and refactor to add in error numbering and reporting
+            
+            wp_data = 1111 #will use this error code as general since this is just if any exception happens during execution
+            self._db_obj.post_scrape_error(scrape_id, wp_data)
+            ex_snap_fn = self._exc_snap("parse",e)
+            json_snap_fn = self._json_snap("parse",wp_data)
+            self.err_log.error(f"3: scrid={scrape_id} - lg={league} - ex={e.__class__.__name__} - excfn={ex_snap_fn} - jsonfn={json_snap_fn}")
+
+            if self.parse_errors > self.ABORT or self.parse_errtype[league] > self.ABORT:
+                exit("Too many consecutive parsing errors... exiting")
+            self.parse_errors += 1
+            self.parse_errtype[league] += 1
+            return (False, wp_data)
+
+        try:
             self._db_obj.send_to_sql(wp_data, scrape_id)
 
         except Exception as e:

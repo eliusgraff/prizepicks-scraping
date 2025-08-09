@@ -29,5 +29,5 @@ def get_prizepicks(league, ppdb):
     api_call =  f"https://api.prizepicks.com/projections?league_id={league_num}&per_page={page_num}&single_stat={single_stat}&game_mode={game_mode}"
 
     webpage = requests.get(api_call, impersonate='chrome110')
-    scrape_id = ppdb.create_scrape_id(1, league_num, datetime.now(timezone.utc).replace(tzinfo=None))
+    scrape_id = ppdb.create_scrape_id(0, league_num, datetime.now(timezone.utc).replace(tzinfo=None))
     return (webpage.json(), scrape_id, api_call)
