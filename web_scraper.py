@@ -12,13 +12,12 @@ known_leagues = {
 }
 
 def get_prizepicks(league, ppdb):
-    '''
-    Function which takes in a league acronym as a str. Function makes sure the league is a known one.
-    If not, returns 1.
-
-    Once league is validated it makes a call to the prizepicks api to get the latest data for that league.
-    Any problems here, it will return 2.
-    '''
+    
+    #Function which takes in a league acronym as a str. Function makes sure the league is a known one.
+    #If not, returns 1.
+    #Once league is validated it makes a call to the prizepicks api to get the latest data for that league.
+    #Any problems here, it will return 2.
+    
     league_num = known_leagues.get(league.upper())
     if league_num is None:
         return 1
@@ -29,8 +28,6 @@ def get_prizepicks(league, ppdb):
     game_mode = "pickem"
     api_call =  f"https://api.prizepicks.com/projections?league_id={league_num}&per_page={page_num}&single_stat={single_stat}&game_mode={game_mode}"
 
-    print(f"Scraping from endpoint: {api_call}")
     webpage = requests.get(api_call, impersonate='chrome110')
     scrape_id = ppdb.create_scrape_id(1, league_num, datetime.now(timezone.utc).replace(tzinfo=None))
-    return (webpage.json(), scrape_id)
-
+    return (webpage.json(), scrape_id, api_call)

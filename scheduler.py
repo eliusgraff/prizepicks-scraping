@@ -49,7 +49,6 @@ class prizepicks_scheduler:
     SNAP = 3 # number of allowable consecutive errors before a snapshot is taken of the api response
     ABORT = 5 # number of allowable consecutive errors before the scheduler will kill itself and stop making requests
 
-
     def __init__(self):
         #Constructor for the scheduler class. 
         
@@ -95,7 +94,7 @@ class prizepicks_scheduler:
         stats_logname = f"{__name__}_stats"
         self.stats_log = logging.getLogger(stats_logname)
         self.stats_log.setLevel("INFO")
-        stats_file_handler = RotatingFileHandler(f"{self.log_path}\\{stats_logname}.log", maxBytes=50000000, backupCount=5)
+        stats_file_handler = RotatingFileHandler(f"{self.log_path}\\{stats_logname}.log", maxBytes=5000000, backupCount=5)
         stats_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
         self.stats_log.addHandler(stats_file_handler)
 
@@ -237,7 +236,6 @@ class prizepicks_scheduler:
         #Function to stop the scheduler loop. This will set the stop flag to true and then wait for the loop to finish next time it is able. Function
         #can be called by the user to stop the scheduler loop gracefully. Function also returns max time the loop will sleep for so caller can know 
         #how long to wait
-        '''---Log this---'''
         print("Stopping scheduler loop...")
         self.trace_log.info(f"0")
         self._stop_loop = True
@@ -282,8 +280,6 @@ class prizepicks_scheduler:
     def _scrape_prizepicks_data(self, league):
         #Funtion which facilitates getting data from PrizePicks and into the DB
         
-        self.trace_log.info(f"{league}")
-        
         #Make call to the prizepicks API to get the data
         scrape_data = web_scraper.get_prizepicks(league, self._db_obj)
 
@@ -300,6 +296,9 @@ class prizepicks_scheduler:
                 exit(f"Too many consecutive scrape errors for {league}, exiting...")
             
             return (False, scrape_data)
+
+        #Log the request
+        self.trace_log.info(f"0: lg={league} api={scrape_data[2]}")
 
         #reset error counters
         self.scrape_errors = 0
@@ -533,7 +532,6 @@ class prizepicks_scheduler:
             else:
                 self.trace_log.debug("00")
             
-
             #Tell the loop to sleep until either the next wakeup time or the next command execution time.
             #I do put a limit on here that the loop will not sleep for less than 5 seconds, to avoid spamming the API or more than 15 seconds to avoid
             # situation where the loop cannot be cancelled by the caller.
@@ -610,10 +608,9 @@ class prizepicks_scheduler:
             f.write(f"{type(e).__name__}\n")
             f.write(f"{e}\n")
             f.write(traceback.format_exc()) # Get the formatted traceback string
-            
+
         self.trace_log.debug(f"0: fn={fn}")
         return fn
-
 
     #class to hold all the relevant queue data from scheduler class when it is destructed. this way the data persists even if the class is deleted
     class _queue_data:
@@ -623,4 +620,3 @@ class prizepicks_scheduler:
         def __init__(self, caller_queue, caller_rates):
             self.queue = caller_queue
             self.rates = caller_rates
-
