@@ -251,16 +251,19 @@ class prizepicks_scheduler:
         
         self.trace_log.info(f"0: {runtime_mins}")
 
+        start_time = datetime.now()
+
         #If runtime is set to some number of mins, then start a thread to run the scheduler loop and wait for that many minutes before stopping the
         #loop
         if runtime_mins > 0:
+            self.trace_log.info(f"00: mins={runtime_mins}")
             try:
                 action_loop = threading.Thread(target=self._schedule_loop, args=())
                 action_loop.start()
                 time.sleep(runtime_mins * 60)
             except KeyboardInterrupt:
                 #User input stopping loop before timeout
-                self.trace_log.info(f"00: {runtime_mins}")
+                self.trace_log.info(f"01: tme={(datetime.now()-start_time)/60} - tot={runtime_mins}")
 
             #stopping scheduler gently and rejoining child thread 
             self.stop_scheduler()
@@ -273,6 +276,7 @@ class prizepicks_scheduler:
         
         #If runtime is 0, then just run the loop forever until program exits or user stops it
         else:
+            self.trace_log.info("0000")
             self._schedule_loop()
 
         return True
@@ -318,11 +322,12 @@ class prizepicks_scheduler:
             
             wp_data = 1111 #will use this error code as general since this is just if any exception happens during execution
             self._db_obj.post_scrape_error(scrape_id, wp_data)
-            ex_snap_fn = self._exc_snap("parse",e)
+            ex_snap_fn = self._exc_snap("parse",e, traceback.format_exc())
             json_snap_fn = self._json_snap("parse",wp_data)
             self.err_log.error(f"3: scrid={scrape_id} - lg={league} - ex={e.__class__.__name__} - excfn={ex_snap_fn} - jsonfn={json_snap_fn}")
 
             if self.parse_errors > self.ABORT or self.parse_errtype[league] > self.ABORT:
+                self.err_log.critical(f"3333: prserrs={self.parse_errors} - errtyp={self.parse_errtype[league]}")
                 exit("Too many consecutive parsing errors... exiting")
             self.parse_errors += 1
             self.parse_errtype[league] += 1
@@ -335,12 +340,14 @@ class prizepicks_scheduler:
             #Since there is no meaningful error codes in teh parsing and sql modules today, I'm just going to catch everything and log it all so that 
             #I can try and troubleshoot the issue for the time being before I try and go back and refactor to add in error numbering and reporting
             self._db_obj.post_scrape_error(scrape_id, wp_data)
-            ex_snap_fn = self._exc_snap("parse",e)
+            ex_snap_fn = self._exc_snap("parse",e, traceback.format_exc())
             json_snap_fn = self._json_snap("parse",wp_data)
-            self.err_log.error(f"3: scrid={scrape_id} - lg={league} - ex={type(e.__name__)} - excfn={ex_snap_fn} - jsonfn={json_snap_fn}")
+            self.err_log.error(f"4: scrid={scrape_id} - lg={league} - ex={type(e.__name__)} - excfn={ex_snap_fn} - jsonfn={json_snap_fn}")
 
             if self.parse_errors > self.ABORT or self.parse_errtype[league] > self.ABORT:
+                self.err_log.critical(f"4444: prserrs={self.parse_errors} - errtyp={self.parse_errtype[league]}")
                 exit("Too many consecutive parsing errors... exiting")
+
             self.parse_errors += 1
             self.parse_errtype[league] += 1
             return (False, wp_data)
@@ -524,7 +531,9 @@ class prizepicks_scheduler:
             #If next command is ready to be executed, then execute it
             if exec_cmd:
 
+                
                 cmd_type = nxt_cmd[1]
+                print(f"Executing cmd: {cmd_type}")
                 status = False
 
                 #If the command is not recognized, then raise error
@@ -608,7 +617,7 @@ class prizepicks_scheduler:
 
     def _create_snap_fn(self, prefix):
         #Centralizing file naming schema for all the snapshot
-        return f"{self.log_path}\\{prefix}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+        return f"{self.log_path}\\SNAP_{prefix}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
 
     def _json_snap(self, prefix, data):
         #Function to take a json object and send it to a text file for review why this may have given the program a hard time. Return fn to I can 
@@ -619,13 +628,13 @@ class prizepicks_scheduler:
         self.trace_log.debug(f"0: fn={fn}")
         return fn
 
-    def _exc_snap(self, prefix, e):
+    def _exc_snap(self, prefix, e, traceback):
         #Function to take in an exception object and send it to a text file for logging and review purposes
         fn = self._create_snap_fn(prefix)
         with open(fn,"w") as f:
-            f.write(f"{type(e).__name__}\n")
+            f.write(f"{e.__class__.__name__}\n")
             f.write(f"{e}\n")
-            f.write(traceback.format_exc()) # Get the formatted traceback string
+            f.write(traceback) # Get the formatted traceback string
 
         self.trace_log.debug(f"0: fn={fn}")
         return fn

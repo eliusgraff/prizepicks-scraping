@@ -3,11 +3,14 @@ import helper
 from datetime import datetime, timezone, timedelta
 from parsed_data import parsed_data
 from my_logs import log_perf
+import os
+import logging
+from logging.handlers import RotatingFileHandler
+import traceback
 
+#Helper class to help with holding data for many to many relationships. To compare and decide what needs to be updated
 class one_to_many:
-    '''
-    Helper class to help with holding data for many to many relationships. To compare and decide what needs to be updated
-    '''
+    
     base_id = int
     target_ids = set()
     version = int
@@ -57,13 +60,27 @@ class prizepicks_db:
     _sql_conn = None
     _sql_cursor = None
     _external_data_names = dict()
-    _is_cleaning = False
+    _log = None
 
     def __init__(self):
+        self._create_log()
         self._sql_conn = self._create_db_connection()
         self._sql_cursor = self._sql_conn.cursor()
         self._set_external_data_names()
-        self._is_cleaning = False
+
+    #Create a log for this class
+    def _create_log(self):
+        log_path = f"{str(os.path.dirname(__file__))}\\logs"
+        if not os.path.isdir(log_path): 
+            os.mkdir(log_path)
+
+        #Set up stats logger
+        stats_logname = f"{__name__}_stats"
+        self._log = logging.getLogger(stats_logname)
+        self._log.setLevel("INFO")
+        stats_file_handler = RotatingFileHandler(f"{log_path}\\{stats_logname}.log", maxBytes=5000000, backupCount=5)
+        stats_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
+        self._log.addHandler(stats_file_handler)
 
     def _set_external_data_names(self):
         #Run to concisely get all the names of all the data names for a given data type parsed from the prizepicks api
@@ -112,10 +129,11 @@ class prizepicks_db:
             database=db_name
         )
 
-        print("MySQL Database connection successful")
+        #MySQL Database connection successful
+        self._log.info(f"0")
         return connection
     
-    #Long term, this should not need to be root user
+    '''---Long term, this should not need to be root user---'''
     def _root_login(self):
         
         #This function is used to retrive the username, host name, and password to gain access to the local
@@ -129,7 +147,7 @@ class prizepicks_db:
         #fields above to get into the SQL DB
         
         my_dict = helper.get_secret("mysql")
-        '''---Checking to make sure all the necessary parts were read from file---'''
+        #Checking to make sure all the necessary parts were read from file
         not_found_list = []
         if my_dict.get('un') is None: 
             not_found_list.append('un')
@@ -141,7 +159,8 @@ class prizepicks_db:
             not_found_list.append('hn')
 
         if len(not_found_list) > 0:
-            print(f"WARNING: Missing values in dict:{not_found_list}")
+            #Missing values in dict, will probably cause errors later...
+            self._log.warning(f"01: ntfnd={not_found_list}")
             return None
 
         return my_dict
@@ -151,23 +170,29 @@ class prizepicks_db:
         #Function called by app manager to send the parsed data to the local mySQL database
         
         if not isinstance(parsed_data_obj, parsed_data):
+            self._log.warning(f"1: type={type(parsed_data_obj)}")
             return 1
         
         #Sends values parsed into the projection table
+        
+        #No data to send to the DB, returning since there is nothing to do")
         if len(parsed_data_obj.data_values) == 0:
-            '''---Log this---'''
-            print("No data to send to the DB, returning since there is nothing to do")
+            self._log.info(f"0000")
             return True
+        
         self._send_to_projection_table(parsed_data_obj.data_order, parsed_data_obj.data_values, scrape_id)
-        print("Sending included data to db")
         self._send_included_data(parsed_data_obj.included_tag_values, scrape_id)
         #Commits changes made during above functions
         self._sql_conn.commit()
         return True
     
+    #Function takes in the headers of the incoming data and maps them to the order which they appear in the mysql table 
     def _create_col_ordering(self, headers, table): 
-        #Function takes in the headers of the incoming data and maps them to the order which they appear in the mysql table 
 
+        '''
+        For this section, I wonder if rather than just sending everything in in the prerfectly correct order it would be easier to just tell the db
+        the column name order that the info will come in. May clean up the code a bit here.
+        '''
         mysql_cols = list()
         mysql_map = list()
         dt_indexes = list()
@@ -190,24 +215,26 @@ class prizepicks_db:
             if header in self.SQL_RESERVED_WORDS: 
                 header = f"my_{header}"
             translated_headers.append(header)
+            
+            #Align the incoming headers with how they appear in the db
             try:
                 col_num = mysql_cols.index(header)
                 mysql_map[col_num] = i
             except ValueError:
+                self._log.warning(f"01: unexhdr={header}")
                 continue
         
         return (mysql_map, dt_indexes, translated_headers)
 
+    #Function to get existing data from the given table name and all the data which is from the passed in ids
     def _get_existing_data(self, table, id_list):
         
         #Pull in all incoming row ids so db can be queried for existing rows
         my_len = len(id_list)
         if my_len == 0:
-            print(f"No data to add for {table}. Returning empty list.")
+            #No data to add for {table}. Returning empty list
+            self._log.info(f"0000")
             return []
-        '''elif len(id_list) == 1:
-            id_list = f"({id_list[0]})"
-        return self.read_query(f"SELECT * FROM {table} WHERE ID IN {id_list};")'''
     
         #build SQL query to get existing data from the db for the ids to compare with
         base_sql = f"SELECT * FROM {table} "
@@ -215,10 +242,10 @@ class prizepicks_db:
         sql_query = base_sql + where_clause
         return self.read_query(sql_query)
 
+    #Function to create timeseries entires for each entry in the incoming row if it exists
     def _add_timeseries(self, hdr_order, incoming_row, row_id, scrape_id, last_values):
-        #Function to create timeseries entires for each entry in the incoming row if it exists
-        #If timeseries data does exist in the incoming row, then the row which must be added to the
-        #mysql is returned
+    #If timeseries data does exist in the incoming row, then the row which must be added to the
+    #mysql is returned
 
         timeseries_list = list()
         for timeseries in self.PROJECTION_TIME_SERIES:
@@ -234,17 +261,14 @@ class prizepicks_db:
 
                 if last_value is None:
                     #If there is not data for last value in the DB then it can be added in there
-                    #print(f"Adding value for new kw :{kw} to timeseries")
                     last_values[kw] = new_value
                     timeseries_list.append([row_id, timeseries, incoming_row[ts_ind], scrape_id])
 
                 elif last_value[2] != new_value:
                     #if value has changed then add it to the timeseries list
-                    #print(f"{last_value[2]} != {incoming_row[ts_ind]} adding this to db")
                     timeseries_list.append([row_id, timeseries, incoming_row[ts_ind], scrape_id])
                 else:
                     #If the data already exists then no need to add it again
-                    #print(f"{last_value[2]} == {incoming_row[ts_ind]} skipping redundant info...")
                     pass
 
             else:
@@ -253,9 +277,9 @@ class prizepicks_db:
         
         return timeseries_list
 
+    #This fucntion goes through each of the items of two existing and incoming data rows and compares them. If any differences then
+    #They are added to the change list in the formate I want to store in the db and returned to the caller
     def _create_changes(self, num_cols, mapping, translated_headers, existing_row, temp_row, row_id, scrape_id, change_list):
-        #This fucntion goes through each of the items of two existing and incoming data rows and compares them. If any differences then
-        #They are added to the change list in the formate I want to store in the db and returned to the caller
         change_list = list()
         for i in range(num_cols):
             #If a value has changed, then add it to the change list and mark that a change has been made. This change will be logged in the appropriate change_history table
@@ -264,13 +288,11 @@ class prizepicks_db:
         
         return change_list
     
+    #function to pull in all the last timeseries values for the passed in projection ids
     def _get_last_values(self, proj_ids):
 
         #Pull in all the data from the DB for the interested timeseries and turn it into a dict
-
-        '''
-        Need to consider if there is a more efficient way to do this than check everying in the DB for all the projections.
-            '''
+        '''Need to consider if there is a more efficient way to do this than check everying in the DB for all the projections.'''
         my_q =f"""
         SELECT * 
         FROM projection_timeseries 
@@ -281,7 +303,8 @@ class prizepicks_db:
         #create dict to see what the latest value for a given projection is
         ts_dict = dict()
         for data_point in all_ts:
-            kw = self._create_keyword(data_point)
+            kw = self._create_keyword([data_point[0],data_point[1]])
+
             if kw not in ts_dict:
                 ts_dict[kw] = data_point
 
@@ -336,11 +359,11 @@ class prizepicks_db:
             try:
                 ts_hdr_inds[ts] = headers.index(ts)
             except ValueError:
-                print(f"Cant find index of {ts}, unexpected, but not critical")
+                #Cant find index of {ts}, unexpected, but not critical
+                self._log.warning(f"01: tsntfnd={ts}")
                 ts_hdr_inds[ts] = None
 
         for i,incoming_row in enumerate(data):
-            #print(f"Processing row {i}")
             #Map the data from the incoming row into a temp row so that it can be compared against whatever is already in the db in the correct order/format
             temp_row = list()
             row_id = incoming_row[id_index]
@@ -352,7 +375,6 @@ class prizepicks_db:
                     temp_row.append(incoming_row[i])
                 else:
                     temp_row.append(None)
-            #print("Mapping added")
 
             #Converts any datetimes to datetime objects of the same format so their comparison is valid
             for i in dts:
@@ -360,9 +382,9 @@ class prizepicks_db:
                     my_dt = datetime.fromisoformat(temp_row[i])
                     utc_dt = my_dt.astimezone(timezone.utc)
                     temp_row[i] = utc_dt.replace(tzinfo=None)
-            #print("dt converted")
 
-            #------Beginning comparison and adding necessary data to correct lists to make updates------
+            ###Beginning comparison and adding necessary data to correct lists to make updates
+            
             #If there is nothing already in the DB matching the data id, insert the values straight into the DB
             existing_row = data_dict.get(row_id)
             if existing_row is None:
@@ -379,14 +401,8 @@ class prizepicks_db:
                     change_list += changes
                     update_list.append(temp_row)
 
-            #print("data added")
-
             #Call function to add any timeseries data to the timeseries list if it exists in the incoming row
             timeseries_list += self._add_timeseries(headers, incoming_row, row_id, scrape_id, last_values)
-            #print("ts updated")
-        #input("Check the comparisons")
-        #print(timeseries_list)
-        #input("review TS List")
 
         #Function which makes batch requests for the 3 tables to be updated
         self._add_new_lines(insert_list, change_list, update_list, table, timeseries_list)
@@ -412,7 +428,9 @@ class prizepicks_db:
             try:
                 self._sql_cursor.execute(delete_query)
             except mysql.connector.Error as sql_err:
-                self._report_sql_error(sql_err, delete_query, update_list)
+                #If something goes wrong with delete query, then that is really bad. Stop the program...
+                self._log.critical(f"1: qry={delete_query} - err={sql_err.__class__.__name__} - msg={sql_err.msg}")
+                raise sql_err
 
         #Goes through and add in all the latest row data to the target table
         if len(my_data_list) > 0:
@@ -427,9 +445,14 @@ class prizepicks_db:
             #Execute the SQL query created above
             try:
                 self._sql_cursor.executemany(my_data_write_query, my_data_list)
-                print(f"Added {len(my_data_list)} rows to {table_name}")
+
             except mysql.connector.Error as sql_err:
-                self._report_sql_error(sql_err, my_data_write_query, my_data_list)
+                #If something goes wrong with delete query, then that is really bad. Stop the program...
+                self._log.critical(f"2: qry={my_data_write_query} - err={sql_err.__class__.__name__} - msg={sql_err.msg}")
+                raise sql_err
+
+            #log however many rows were added to which table
+            self._log.info(f"0: add={len(my_data_list)} - tbl={table_name}")
 
         #All of the changes to the projections are tracked. This block adds the changed attributes and values into the table tracking the history of the changes
         if len(data_history_list) > 0:
@@ -443,10 +466,14 @@ class prizepicks_db:
             #Execute the SQL query created above
             try:
                 self._sql_cursor.executemany(history_write_query, data_history_list)
-                print(f"Added {len(data_history_list)} rows to {table_name}_change_history")
-            except mysql.connector.Error as sql_err:
-                self._report_sql_error(sql_err, history_write_query, data_history_list)
 
+            except mysql.connector.Error as sql_err:
+                self._log.critical(f"2: qry={history_write_query} - err={sql_err.__class__.__name__} - msg={sql_err.msg}")
+                raise sql_err
+
+            #log however many rows were added to which table
+            self._log.info(f"0: add={len(data_history_list)} - tbl={table_name}")
+            
         #Some of the projection attributes are expected to change all the time. Rather than keep changing the whole projection record every time, these
         #values are tracked/stored in this timeseries table and the latest values are alwyas inserted in here. This does not check if that value has changed
         #at all, it just adds it no matter what
@@ -461,13 +488,17 @@ class prizepicks_db:
             #Execute the SQL query created above
             try:
                 self._sql_cursor.executemany(ts_write_query, timeseries_list)
-                print(f"Added {len(timeseries_list)} rows to {table_name}_timeseries")
+
             except mysql.connector.Error as sql_err:
-                self._report_sql_error(sql_err, ts_write_query, timeseries_list)
+                self._log.critical(f"2: qry={ts_write_query} - err={sql_err.__class__.__name__} - msg={sql_err.msg}")
+
+            #log however many rows were added to which table
+            self._log.info(f"0: add={len(timeseries_list)} - tbl={table_name}")
 
         return True
     
     def _report_sql_error(self, error, query, rows):
+        raise NotImplementedError
         print(f"Query: {query}")
         print(f"ERROR MESSAGE: {error.msg}")
         for row in rows:
@@ -480,12 +511,14 @@ class prizepicks_db:
         try:
             self._sql_cursor.execute(query)
             result = self._sql_cursor.fetchall()
-            return result
         
-        except Exception as E:
-            print(f"Attempting query: {query}\nBut error occured")
-            raise E
+        except Exception as e:
+            self._log.warning(f"9999: qry={query} - err={e.__class__.__name__} - msg={e.msg} - tb={traceback.format_exc()}")
+            raise e
+            
+        return result
 
+    #Function to remove the prefixes added when data is put into the mysql to avoid reserved words
     def _remove_mysql_prefix(self, name_list):
         '''
         Shitty code that I should just do with list comprehension, but this is easier to read for now
@@ -498,14 +531,16 @@ class prizepicks_db:
                 clean_list.append(col_name)
         return clean_list
 
+    #Function to post to the db that there was an error parsing the data from a specific api scrape
     def post_scrape_error(self, scrape_id, error):
         update_existing = f"UPDATE scrape_data SET my_status = {error} WHERE id = {scrape_id};"
         self._sql_cursor.execute(update_existing)
         self._sql_conn.commit()
+        self._log.error(f"8888: stat={error} - scrid={scrape_id}")
 
+    #function which takes in the required data to define a scrape entry in the db.
+    #this function add that the db and returns the id of that new entry
     def create_scrape_id( self, status, leaguenum, timestamp):
-        #function which takes in the required data to define a scrape entry in the db.
-        #this function add that the db and returns the id of that new entry
 
         self._sql_cursor.execute(f"INSERT INTO scrape_data (id, my_status, league_num, store_time) VALUES ( NULL, {status},{leaguenum}, '{timestamp}');")
         self._sql_conn.commit()
@@ -539,11 +574,6 @@ class prizepicks_db:
 
             #pull in existing data for the db into a dict to compare against and see if any changes need to be made to the db
             incoming_ids = [row['id'] for row in data]
-            '''if len(incoming_ids) == 1:
-                incoming_ids = f"({incoming_ids[0]})"
-            else:
-                incoming_ids = tuple(incoming_ids)
-            existing_data = self.read_query(f"SELECT * FROM {table} WHERE id IN {incoming_ids};")'''
 
             #build SQL query to delete the rows with old data in them
             base_sql = f"DELETE FROM {table} "
@@ -597,16 +627,9 @@ class prizepicks_db:
 
             self._add_new_lines(insert_list, change_list, update_list, table, timeseries_list, id_index)
 
-    #A way for a caller to check if db cleaning is ongoing
-    def is_cleaning(self):
-        return self._is_cleaning
-
-    #How caller can manually stop cleaning process of the db
-    def stop_clean(self):
-        self._is_cleaning = False
-
     def _build_dict(self, lgnm, nums, start):
-        print("Building validation dict")
+        raise NotImplementedError
+        self._log.debug(f"0")
         id_list = self.read_query(f"SELECT id FROM scrape_data WHERE league_num = {lgnm} AND my_status = 1 AND is_cleaned = 0 AND id > {start} ORDER BY store_time ASC;")
         pre_dict = dict()
         print("\tGetting parse data from the DB")
@@ -628,6 +651,8 @@ class prizepicks_db:
     #Function to standardize creation of keys for dict in cleaning db with proj_id and ts_name
     def _create_keyword(self, row_data):
         if len(row_data) < 2:
+            #need to make sure there are tuple long enough to make the keyword before doing it
+            self._log.critical(f"1111: invrow={row_data}")
             assert len(row_data) > 1 , f"row_data must have at least 2 items to create a keyword. Row data: {row_data}"
         return f"{row_data[0]}_{row_data[1]}"
 
@@ -645,7 +670,6 @@ class prizepicks_db:
         ORDER BY 
             (DATA_LENGTH + INDEX_LENGTH) DESC;
         """
-
         self._sql_cursor.execute(size_query)
         result = self._sql_cursor.fetchall()
         return result
