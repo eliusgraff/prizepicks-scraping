@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from curl_cffi import requests
+import traceback
 
 known_leagues = {
     "NFL":9,
@@ -30,4 +31,10 @@ def get_prizepicks(league, ppdb):
 
     webpage = requests.get(api_call, impersonate='chrome110')
     scrape_id = ppdb.create_scrape_id(0, league_num, datetime.now(timezone.utc).replace(tzinfo=None))
-    return (webpage.json(), scrape_id, api_call)
+
+    try:
+        wp_json = webpage.json()
+    except Exception as e:
+        return(1111, e, traceback.format_exc(), webpage, scrape_id, api_call)
+    
+    return (wp_json, scrape_id, api_call)

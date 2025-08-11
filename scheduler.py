@@ -281,21 +281,24 @@ class prizepicks_scheduler:
 
         return True
         
+    #Funtion which facilitates getting data from PrizePicks and into the DB
     def _scrape_prizepicks_data(self, league):
-        #Funtion which facilitates getting data from PrizePicks and into the DB
         
         #Make call to the prizepicks API to get the data
         scrape_data = web_scraper.get_prizepicks(league, self._db_obj)
 
         #Return false if there was an error with the scrape by returning and send the error code
-        if isinstance(scrape_data, int):
+        if isinstance(scrape_data[0], int):
+            '''Can put this into an error handler so that this function isnt doing too many things'''
             self.scrape_errors += 1
             self.scrape_errtype[league] += 1
-            self.err_log.error(f"1_{scrape_data}: {league}")
+            self.err_log.error(f"1.{scrape_data[0]}: {league}")
+            self._db_obj.post_scrape_error(scrape_data[4], scrape_data[0])
 
             #the only reason this should post an error is if the league is not known to the scraper, tracking here so I can see what's going on
             if self.scrape_errors > self.SNAP or self.scrape_errtype[league] > self.SNAP:
                 self.err_log.critical(f"2: lgnum={league} - se={self.scrape_errors} - errtyp={self.scrape_errtype}")
+                self._exc_snap("SCRAPE", scrape_data[1],scrape_data[2])
             if self.scrape_errors > self.ABORT:
                 exit(f"Too many consecutive scrape errors for {league}, exiting...")
             
@@ -357,7 +360,7 @@ class prizepicks_scheduler:
         self.parse_errtype[league] = 0
         
         return (True, wp_data)
-    
+        
     def _q_sanity_check(self, cmd_type):
         #Function which checks to make sure there is exactly 1 instance of cmd_type in the q. If 0 or more than 1 instance in the q.
         #If 0 instances, returns 0
@@ -557,6 +560,7 @@ class prizepicks_scheduler:
 
             #If woken up and nothing to do, then go right on back to sleep
             else:
+                print("Sleep more")
                 self.trace_log.debug("00")
             
             #Tell the loop to sleep until either the next wakeup time or the next command execution time.
