@@ -3,6 +3,8 @@ from my_logs import log_perf
 import os
 import logging
 from logging.handlers import RotatingFileHandler
+from parsed_data import debug_exc
+
 
 ###Code which runs when this module is imported###
 log_path = f"{str(os.path.dirname(__file__))}\\logs"
@@ -31,12 +33,19 @@ def parse_webpage(json_data, pp_db):
     #Parsing the data tags will return a list of values to coorespond to each of the values in the 'data_order' list. Before adding it all into the mySQL db.
     
     #Get the json data from the raw html
-    
+
     col_orders = pp_db.get_data_to_parse()
     proj_order = col_orders['projection']
     #Define large data structure where all the parsed data will reside until it is sent to mySQL
-    data_values = parse_proj_json(json_data, proj_order)
-    includes = parse_included_data(json_data.get("included"), col_orders)
+    try:
+        data_values = parse_proj_json(json_data, proj_order)
+    except Exception as e:
+        raise debug_exc(e, "1", {"json":json_data, "prj_ordr":proj_order}, "PARSER")
+    
+    try:
+        includes = parse_included_data(json_data.get("included"), col_orders)
+    except Exception as e:
+        raise debug_exc(e, "2", {"inclds":json_data.get("included"), "col_ordr":col_orders})
 
     return parsed_data(col_orders['projection'], data_values, includes)
 
@@ -48,6 +57,7 @@ def parse_proj_data(data_item, col_order):
     #useful in the future, but for validation, I'm going to leave it in there.
 
     #Create and fill up dict to hold all the data for given column
+        
     my_dict = dict()
     for col in col_order:
         my_dict[col] = None
@@ -108,6 +118,7 @@ def parse_included_data(included_data, col_orders):
     #When projection API is called, in addition to all the projection data, there is also data shared about stat types, stat averages, player, teams 
     #and leagues in the tag called 'included'. This data defines what the projection is (ie rushing vs passing yards), who the player is, what team 
     #they are on and so forth. The more data which can be collected the more predictions can be made based on the outcomes of the projections.
+        
     global LOG
     if included_data is None:
         LOG.info(f"000")

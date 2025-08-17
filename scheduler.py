@@ -10,7 +10,7 @@ import bisect
 import logging
 from logging.handlers import RotatingFileHandler
 import json
-import traceback
+from parsed_data import debug_exc
 
 class prizepicks_scheduler:
     
@@ -42,8 +42,6 @@ class prizepicks_scheduler:
     trace_log = None # logger object for tracing command flow of the project
     log_path = f"{str(os.path.dirname(__file__))}\\logs"
 
-    scrape_errors = 0 # counter for how many consecutive scrape error are seen
-    scrape_errtype = dict() # dict to keep track of consec scrape errors on a by-league basis
     parse_errors = 0 # counter for how many consecutive parser errors are seen
     parse_errtype = dict() # dict to keep track of consec parse errors on a by-league basis
     SNAP = 3 # number of allowable consecutive errors before a snapshot is taken of the api response
@@ -51,7 +49,7 @@ class prizepicks_scheduler:
 
     def __init__(self):
         #Constructor for the scheduler class. 
-        
+        print("Setting up Scheduler class...")
         #Set up loggers
         self._create_loggers()
         self.trace_log.critical("INIT")
@@ -281,86 +279,55 @@ class prizepicks_scheduler:
 
         return True
         
-    #Funtion which facilitates getting data from PrizePicks and into the DB
+    #Funtion which facilitates getting data from PrizePicks and into the DB and making sure errors are reported accordingly
     def _scrape_prizepicks_data(self, league):
         
         #Make call to the prizepicks API to get the data
-        scrape_data = web_scraper.get_prizepicks(league, self._db_obj)
+        try:
+            scrape_data = web_scraper.get_prizepicks(league, self._db_obj)
 
-        #Return false if there was an error with the scrape by returning and send the error code
-        if isinstance(scrape_data[0], int):
-            '''Can put this into an error handler so that this function isnt doing too many things'''
-            self.scrape_errors += 1
-            self.scrape_errtype[league] += 1
-            self.err_log.error(f"1.{scrape_data[0]}: {league}")
-            self._db_obj.post_scrape_error(scrape_data[4], scrape_data[0])
-
-            #the only reason this should post an error is if the league is not known to the scraper, tracking here so I can see what's going on
-            if self.scrape_errors > self.SNAP or self.scrape_errtype[league] > self.SNAP:
-                self.err_log.critical(f"2: lgnum={league} - se={self.scrape_errors} - errtyp={self.scrape_errtype}")
-                self._exc_snap("SCRAPE", scrape_data[1],scrape_data[2])
-            if self.scrape_errors > self.ABORT:
-                exit(f"Too many consecutive scrape errors for {league}, exiting...")
-            
-            return (False, scrape_data)
+        #Make sure any excepton caught is in the debug_exc wrapper
+        except Exception as e:
+            if isinstance(e, debug_exc):
+                #Not sure if I need to log this here or not, leaving out for now self.err_log.critical(f"1: lgnum={league}")
+                raise e
+            self.err_log.critical(f"1: lgnum={league}")
+            raise debug_exc(e, "1", {"lg":league}, "SCHEDULER")
 
         #Log the request
         self.trace_log.info(f"0: lg={league} api={scrape_data[2]}")
-
-        #reset error counters
-        self.scrape_errors = 0
-        self.scrape_errtype[league] = 0
 
         #Send the webpage data to the parser
         webpage = scrape_data[0]
         scrape_id = scrape_data[1]
         
-        '''---REAllY REALLY REALLY NEED TO UPDATE THIS SO THAT ERRNUMS ARE RETURNED RATHER THAN JUST CATCHING EVERYTHING---'''
+        #Parse the api data collected from the internet
         try:
             wp_data = my_parser.parse_webpage(webpage, self._db_obj)
 
+        #Make sure any excepton caught is in the debug_exc wrapper
         except Exception as e:
-            #Since there is no meaningful error codes in teh parsing and sql modules today, I'm just going to catch everything and log it all so that 
-            #I can try and troubleshoot the issue for the time being before I try and go back and refactor to add in error numbering and reporting
-            
-            wp_data = 1111 #will use this error code as general since this is just if any exception happens during execution
-            self._db_obj.post_scrape_error(scrape_id, wp_data)
-            ex_snap_fn = self._exc_snap("parse",e, traceback.format_exc())
-            json_snap_fn = self._json_snap("parse",wp_data)
-            self.err_log.error(f"3: scrid={scrape_id} - lg={league} - ex={e.__class__.__name__} - excfn={ex_snap_fn} - jsonfn={json_snap_fn}")
-
-            if self.parse_errors > self.ABORT or self.parse_errtype[league] > self.ABORT:
-                self.err_log.critical(f"3333: prserrs={self.parse_errors} - errtyp={self.parse_errtype[league]}")
-                exit("Too many consecutive parsing errors... exiting")
-            self.parse_errors += 1
-            self.parse_errtype[league] += 1
-            return (False, wp_data)
+            self._db_obj.post_scrape_error(scrape_id, "2")
+            if isinstance(e, debug_exc):
+                #Not sure if I need to log this here or not, leaving out for now self.err_log.critical(f"2: lgnum={league} - scrid={scrape_id}")
+                raise e
+            self.err_log.critical(f"2: lgnum={league} - scrid={scrape_id}")
+            raise debug_exc(e, "2", {"lg":league, "scrid":scrape_id, "wp":webpage}, "SCHEDULER")
 
         try:
             self._db_obj.send_to_sql(wp_data, scrape_id)
-
+        
+        #Make sure any excepton caught is in the debug_exc wrapper
         except Exception as e:
-            #Since there is no meaningful error codes in teh parsing and sql modules today, I'm just going to catch everything and log it all so that 
-            #I can try and troubleshoot the issue for the time being before I try and go back and refactor to add in error numbering and reporting
-            self._db_obj.post_scrape_error(scrape_id, wp_data)
-            ex_snap_fn = self._exc_snap("parse",e, traceback.format_exc())
-            json_snap_fn = self._json_snap("parse",wp_data)
-            self.err_log.error(f"4: scrid={scrape_id} - lg={league} - ex={type(e.__name__)} - excfn={ex_snap_fn} - jsonfn={json_snap_fn}")
-
-            if self.parse_errors > self.ABORT or self.parse_errtype[league] > self.ABORT:
-                self.err_log.critical(f"4444: prserrs={self.parse_errors} - errtyp={self.parse_errtype[league]}")
-                exit("Too many consecutive parsing errors... exiting")
-
-            self.parse_errors += 1
-            self.parse_errtype[league] += 1
-            return (False, wp_data)
-
-        #Reset the parse error counters
-        self.parse_errors = 0
-        self.parse_errtype[league] = 0
+            self._db_obj.post_scrape_error(scrape_id, "3")
+            if isinstance(e, debug_exc):
+                #Not sure if I need to log this here or not, leaving out for now self.err_log.critical(f"3: lgnum={league} - scrid={scrape_id}")
+                raise e
+            self.err_log.critical(f"3: lgnum={league} - scrid={scrape_id}")
+            raise debug_exc(e, "3", {"lg":league, "scrid":scrape_id, "wp":webpage}, "SCHEDULER")
         
-        return (True, wp_data)
-        
+        return wp_data    
+
     def _q_sanity_check(self, cmd_type):
         #Function which checks to make sure there is exactly 1 instance of cmd_type in the q. If 0 or more than 1 instance in the q.
         #If 0 instances, returns 0
@@ -393,6 +360,7 @@ class prizepicks_scheduler:
         #None can indicate 2 things: 1 that something went wrong and no data was parsed or 2 that there are in fact no upcoming games and the season
         #is over or no bets are available.
             #So not to overcompensate for the case of #1, will double the refresh time
+        '''There should be something added here, None is different than bad status and the scheduling logic should be different for those cases'''
         if game_data is None:
             self.schedule_rates[cmd_type] = min( self.schedule_rates[cmd_type]*2, self.min_req_rate )
             return (0,cmd_type,self.schedule_rates[cmd_type])
@@ -460,8 +428,8 @@ class prizepicks_scheduler:
         
         return True
 
+    #update queue once a command has been executed and make adjustments to scheduler as-needed
     def _update_queue(self, data):
-        #update queue once a command has been executed and make adjustments to scheduler as-needed
         
         #---Updaing the queue---
         #Since each command can only be in the q once, this just takes the command just executed (at spot 0), adds the request rate for that command
@@ -502,7 +470,7 @@ class prizepicks_scheduler:
         #Function to log current status of the queue and how long the loop is going to sleep for
         q_msg = "curq: "
         for sch,cmd in self.cmd_q:
-            q_msg += f"{sch.astimezone().isoformat()}:{cmd}:{self.schedule_rates[cmd]}\t"
+            q_msg += f"{cmd}:{sch.astimezone().isoformat()}:{self.schedule_rates[cmd]}\t"
         self.sched_log.info(f"\t{q_msg[:-1]}")
 
         if sleep_time is not None:
@@ -514,6 +482,8 @@ class prizepicks_scheduler:
 
         self._stop_loop = False
         min_time_to_wait = 5 #in seconds to avoid spamming the API with requests and being detected
+        consec_errs = 0
+        type_errs = {cmd: 0 for cmd in self.known_leagues}
 
         self.trace_log.debug("0")
         while True:
@@ -534,28 +504,37 @@ class prizepicks_scheduler:
             #If next command is ready to be executed, then execute it
             if exec_cmd:
 
-                
                 cmd_type = nxt_cmd[1]
                 print(f"Executing cmd: {cmd_type}")
-                status = False
-
-                #If the command is not recognized, then raise error
-                if cmd_type not in self.known_leagues:
-                    err_msg = f"1: unknwncmd={cmd_type}"
-                    self.err_log.critical(err_msg)
-                    self.sched_log.critical(err_msg)
-                    raise TypeError(f"Unknown command type: {cmd_type}")
+                err_posted = False
             
+                #Get stats on db size
                 if cmd_type == 'sts':
-                    status = self._get_db_stats()
-                else:
-                    status, data = self._scrape_prizepicks_data(cmd_type)
-
-                if status is False:
-                    #Problem found executing command...
-                    self.err_log.error(f"2: cmd={cmd_type} - stus={status}")
-                    raise RuntimeError(f"Command {cmd_type} failed to execute properly. Status = {status}")
+                    self._get_db_stats()
                 
+                else:
+                    try:
+                        #Make API call to get data for a league
+                        data = self._scrape_prizepicks_data(cmd_type)
+                        
+                        #reset error counters if nothing went wrong
+                        consec_errs = 0
+                        type_errs[cmd_type] = 0
+
+                    except debug_exc as dbe:
+                        '''
+                        Eventually, if the problem is just related to the single cmd_type then we need to just evict it from the q or set it to lowest
+                        polling rate so that it doesnt keep clogging us up and doesnt stop everything else if that is all working properly
+                        '''
+                        print(f"Found exception while scraping pp. Logging this error. Counts:\n{consec_errs}\n{type_errs}")
+                        err_posted = dbe
+                        consec_errs += 1
+                        type_errs[cmd_type] += 1
+
+                if err_posted is not False:
+                        self._cmd_err_handler(err_posted, cmd_type, type_errs, consec_errs)
+                
+                #Reschedule the command that just executed or attempted to be executed
                 self._update_queue(data)
 
             #If woken up and nothing to do, then go right on back to sleep
@@ -582,6 +561,14 @@ class prizepicks_scheduler:
         self._stop_loop = False
         return True
     
+    #function to log all debug saved for exceptions from process of making API call to loading in DB
+    def _cmd_err_handler(self, dbe, ct, te,ce):
+        fn = dbe.dump()
+        if ce > 3 or te[ct] > 3:
+            self.err_log.error(f"2222: ce={ce} - te={ct}:{te[ct]} - fn={fn}")
+            raise RuntimeError(f"Too many failed commands in a row. Last command executed = {ct}")
+        self.err_log.error(f"22: cmd={ct} - fn={fn}")
+
     def _get_db_stats(self):
         #Function to get the size of the tables in the db and log them
         db_stats = self._db_obj.get_stats()
@@ -619,10 +606,6 @@ class prizepicks_scheduler:
         except KeyError:
             self.trace_log.warning(f"02: ntfnd={name}")
 
-    def _create_snap_fn(self, prefix):
-        #Centralizing file naming schema for all the snapshot
-        return f"{self.log_path}\\SNAP_{prefix}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
-
     def _json_snap(self, prefix, data):
         #Function to take a json object and send it to a text file for review why this may have given the program a hard time. Return fn to I can 
         #correlate the error to the dump
@@ -642,7 +625,7 @@ class prizepicks_scheduler:
 
         self.trace_log.debug(f"0: fn={fn}")
         return fn
-
+    
     #class to hold all the relevant queue data from scheduler class when it is destructed. this way the data persists even if the class is deleted
     class _queue_data:
         queue = list()

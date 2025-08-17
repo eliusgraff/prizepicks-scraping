@@ -1,3 +1,9 @@
+import traceback
+import os
+from datetime import datetime as dt
+import inspect
+
+#Data structure to hold all the data that was parsed from the PrizePicks API request
 class parsed_data:
     '''
     Data structure to hold all the data that was parsed from the PrizePicks API request. The structure holds both the
@@ -54,3 +60,46 @@ class player_stats:
         self.position = player_postion
         self.dnp = player_dnp
         self.stats = player_stats
+
+log_path = f"{str(os.path.dirname(__file__))}\\logs"
+
+#wrapper class to capture exception info and data to debug
+class debug_exc (Exception):
+
+    exc = None          #exception object of the exception the data is collected from
+    caller = None       #will auto-populate the name of the caller function so it is easy to know where the exception was created
+    error_code = None   #error code from the module where the exception occured
+    trace_back = None   #traceback.format_exc() from the except block, this gets the traceback info as a string
+    data_dict = None    #whatever data was passed into the fucntion which caused the exception as well as anything else that may be needed for debug
+    prefix = None       #Identifier to give more info in the file name about where the exception occured
+    file_path = None
+
+    #Constructor to take in the initial exception and store it along with additional debug info to be dumpped to a file 
+    def __init__(self, e, ec, dd, p):
+        self.exc = e
+        self.caller = inspect.currentframe().f_back.f_code.co_name
+        self.error_code = ec
+        self.trace_back = traceback.format_stack()
+        self.data_dict = dd
+        self.prefix = p
+        global log_path
+        self.file_path = f"{log_path}\\SNAP_{self.prefix}_{dt.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+
+    '''
+    I want to limit the number of snaps that are saved, so in here, should run a function which checks to see if I need to delete a snap before I 
+    create a new one
+    '''
+    #Function to dump exception + debug info to a file. Caller can pass in fn to override the default. Function returns full path to file.
+    def dump(self, fn = None):
+        
+        fn = self.file_path if fn is None else fn
+        with open(fn,"w", encoding='utf-8') as f:
+            f.write(f"{self.exc.__class__.__name__}\n\n")
+            f.write(f"{self.caller} ERRORCODE: {self.error_code}\n\n")
+            for level in self.trace_back[1:-1]:
+                f.write(f"\t{level}")
+            f.write("\n")
+            for k,v in self.data_dict.items():
+                f.write(f"{k} : {v}\n")
+
+        return fn

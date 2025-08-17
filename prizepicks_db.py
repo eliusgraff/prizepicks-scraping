@@ -1,7 +1,7 @@
 import mysql.connector
 import helper
-from datetime import datetime, timezone, timedelta
-from parsed_data import parsed_data
+from datetime import datetime, timezone
+from parsed_data import parsed_data, debug_exc
 from my_logs import log_perf
 import os
 import logging
@@ -187,12 +187,11 @@ class prizepicks_db:
         return True
     
     #Function takes in the headers of the incoming data and maps them to the order which they appear in the mysql table 
+    '''
+    For this section, I wonder if rather than just sending everything in in the prerfectly correct order it would be easier to just tell the db
+    the column name order that the info will come in. May clean up the code a bit here.
+    '''
     def _create_col_ordering(self, headers, table): 
-
-        '''
-        For this section, I wonder if rather than just sending everything in in the prerfectly correct order it would be easier to just tell the db
-        the column name order that the info will come in. May clean up the code a bit here.
-        '''
         mysql_cols = list()
         mysql_map = list()
         dt_indexes = list()
@@ -212,6 +211,11 @@ class prizepicks_db:
 
         #Take the incoming header list and make sure all names are translated to be mysql-compatible
         for i,header in enumerate(headers):
+            #ignore anything that is a timeseries since that will not show up in the projections table
+            if header in self.PROJECTION_TIME_SERIES:
+                continue
+            
+            #Add 'my_' to the front of the mysql reserved words so that all column names
             if header in self.SQL_RESERVED_WORDS: 
                 header = f"my_{header}"
             translated_headers.append(header)
@@ -430,7 +434,7 @@ class prizepicks_db:
             except mysql.connector.Error as sql_err:
                 #If something goes wrong with delete query, then that is really bad. Stop the program...
                 self._log.critical(f"1: qry={delete_query} - err={sql_err.__class__.__name__} - msg={sql_err.msg}")
-                raise sql_err
+                raise debug_exc(sql_err, "1", {"qry":delete_query}, "PPDB")
 
         #Goes through and add in all the latest row data to the target table
         if len(my_data_list) > 0:
@@ -449,7 +453,7 @@ class prizepicks_db:
             except mysql.connector.Error as sql_err:
                 #If something goes wrong with delete query, then that is really bad. Stop the program...
                 self._log.critical(f"2: qry={my_data_write_query} - err={sql_err.__class__.__name__} - msg={sql_err.msg}")
-                raise sql_err
+                raise debug_exc(sql_err, "2", {"qry":my_data_write_query, "dta_lst":my_data_list}, "PPDB")
 
             #log however many rows were added to which table
             self._log.info(f"0: add={len(my_data_list)} - tbl={table_name}")
@@ -468,8 +472,8 @@ class prizepicks_db:
                 self._sql_cursor.executemany(history_write_query, data_history_list)
 
             except mysql.connector.Error as sql_err:
-                self._log.critical(f"2: qry={history_write_query} - err={sql_err.__class__.__name__} - msg={sql_err.msg}")
-                raise sql_err
+                self._log.critical(f"3: qry={history_write_query} - err={sql_err.__class__.__name__} - msg={sql_err.msg}")
+                raise debug_exc(sql_err, "3", {"qry":history_write_query, "dta_lst":data_history_list}, "PPDB")
 
             #log however many rows were added to which table
             self._log.info(f"0: add={len(data_history_list)} - tbl={table_name}")
@@ -490,7 +494,8 @@ class prizepicks_db:
                 self._sql_cursor.executemany(ts_write_query, timeseries_list)
 
             except mysql.connector.Error as sql_err:
-                self._log.critical(f"2: qry={ts_write_query} - err={sql_err.__class__.__name__} - msg={sql_err.msg}")
+                self._log.critical(f"4: qry={ts_write_query} - err={sql_err.__class__.__name__} - msg={sql_err.msg}")
+                raise debug_exc(sql_err, "4", {"qry":ts_write_query, "dta_lst":timeseries_list}, "PPDB")
 
             #log however many rows were added to which table
             self._log.info(f"0: add={len(timeseries_list)} - tbl={table_name}")
@@ -536,7 +541,6 @@ class prizepicks_db:
         update_existing = f"UPDATE scrape_data SET my_status = {error} WHERE id = {scrape_id};"
         self._sql_cursor.execute(update_existing)
         self._sql_conn.commit()
-        self._log.error(f"8888: stat={error} - scrid={scrape_id}")
 
     #function which takes in the required data to define a scrape entry in the db.
     #this function add that the db and returns the id of that new entry
@@ -653,7 +657,7 @@ class prizepicks_db:
         if len(row_data) < 2:
             #need to make sure there are tuple long enough to make the keyword before doing it
             self._log.critical(f"1111: invrow={row_data}")
-            assert len(row_data) > 1 , f"row_data must have at least 2 items to create a keyword. Row data: {row_data}"
+            raise debug_exc(IndexError, "1111", {"invrow":row_data}, "PPDB")
         return f"{row_data[0]}_{row_data[1]}"
 
     #This is the function which will be called periodically to retrieve stats for the size of the db to be logged over time
