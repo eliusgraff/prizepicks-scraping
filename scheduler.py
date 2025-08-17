@@ -422,7 +422,6 @@ class prizepicks_scheduler:
         #Negative time should not be possible, this needs to be checked! Setting to default 
         else:
             #Time to next game is negative, that should not be possible, logging it and resetting to default
-            '''---Maybe there is a way I can store other game info so that rather than just going to default I can just use the last valid gametime---'''
             self.schedule_rates[cmd_type] = self.default_req_rate
             return (1, cmd_type, next_game, sec_to_nxt_gm)
         

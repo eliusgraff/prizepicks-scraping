@@ -82,6 +82,7 @@ class prizepicks_db:
         stats_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
         self._log.addHandler(stats_file_handler)
 
+    #function to get
     def _set_external_data_names(self):
         #Run to concisely get all the names of all the data names for a given data type parsed from the prizepicks api
         #This function runs through all the tables of the db, which are hard-coded into the _MY_TABLES member variale
@@ -100,7 +101,6 @@ class prizepicks_db:
 
             #timeseries data is stored in a special table for values expected to change often, so this 
             #gets the names of those columns
-            '''---All the timeseries data should be stored in a dict somewhere and we should check against that to decide if we need to pull in timeseries data or not---'''
             ts_list = self.read_query(f"SELECT DISTINCT name FROM {table_name}_timeseries;")
             ts_names = [each[0] for each in ts_list]
 
@@ -133,11 +133,11 @@ class prizepicks_db:
         self._log.info(f"0")
         return connection
     
-    '''---Long term, this should not need to be root user---'''
+    '''Long term, this should not need to be root user'''
+    #This function is used to retrive the username, host name, and password to gain access to the local mySQL database. 
     def _root_login(self):
         
-        #This function is used to retrive the username, host name, and password to gain access to the local
-        #mySQL database. requires that the user have a file called 'secrets.txt' where 3 of the lines in it are:
+        #requires that the user have a file called 'secrets.txt' where 3 of the lines in it are:
         #mysql_un=username
         #mysql_pw=password
         #mysql_hn=hostname
@@ -165,9 +165,8 @@ class prizepicks_db:
 
         return my_dict
 
-    '''---Add functionality to this function so it does something other than just return true all the time---'''
+    #Function called by app manager to send the parsed data to the local mySQL database
     def send_to_sql(self, parsed_data_obj, scrape_id):
-        #Function called by app manager to send the parsed data to the local mySQL database
         
         if not isinstance(parsed_data_obj, parsed_data):
             self._log.warning(f"1: type={type(parsed_data_obj)}")
@@ -255,7 +254,7 @@ class prizepicks_db:
         for timeseries in self.PROJECTION_TIME_SERIES:
             #Not all timeseries data is always guarunteed, so this check to make sure that the timeseries data actually exists before trying to add anything. 
             #If it does not exist then just skip it, that's ok.
-            '''---Probably faster way to do this somehow rather than look for the same indexes each time---'''
+            '''Probably faster way to do this somehow rather than look for the same indexes each time'''
             ts_ind = hdr_order.index(timeseries)
             kw = self._create_keyword([row_id,timeseries])
 
@@ -296,7 +295,6 @@ class prizepicks_db:
     def _get_last_values(self, proj_ids):
 
         #Pull in all the data from the DB for the interested timeseries and turn it into a dict
-        '''Need to consider if there is a more efficient way to do this than check everying in the DB for all the projections.'''
         my_q =f"""
         SELECT * 
         FROM projection_timeseries 

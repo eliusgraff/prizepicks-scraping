@@ -73,7 +73,7 @@ def parse_proj_data(data_item, col_order):
         
     
     #Parsing relationships sub-dict data and data from its sub-dicts
-    '''---This also should eventually be able to be parsed based on what is pulled from mysql db, for now hard-code is fine---'''
+    '''This also should eventually be able to be parsed based on what is pulled from mysql db, for now hard-code is fine'''
     relationship_dicts = ["league", "new_player", "duration", "game"]
     relationship_data = ["score"]
     for sub_dict in relationship_dicts:
