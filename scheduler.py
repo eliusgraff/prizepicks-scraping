@@ -633,3 +633,8 @@ class prizepicks_scheduler:
         def __init__(self, caller_queue, caller_rates):
             self.queue = caller_queue
             self.rates = caller_rates
+
+
+if __name__ == "__main__":
+    s = prizepicks_scheduler()
+    s.run_scheduler()
