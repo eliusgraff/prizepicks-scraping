@@ -112,7 +112,7 @@ class prizepicks_db:
         #copy of those names
         return self._external_data_names.copy()
 
-    def _create_db_connection(self, db_name="prizepicks", host_name= None, user_name = None, user_password = None):
+    def _create_db_connection(self, db_name="pp dev", host_name= None, user_name = None, user_password = None):
         
         #Function to create a connection to the local mySQL database. Credentials can be passed in or they default to None and if host_name is left as None
         #then the root_login() function will get the root login data form a file somewhere on the computer
@@ -190,6 +190,7 @@ class prizepicks_db:
     For this section, I wonder if rather than just sending everything in in the prerfectly correct order it would be easier to just tell the db
     the column name order that the info will come in. May clean up the code a bit here.
     '''
+    @log_perf
     def _create_col_ordering(self, headers, table): 
         mysql_cols = list()
         mysql_map = list()
@@ -230,6 +231,7 @@ class prizepicks_db:
         return (mysql_map, dt_indexes, translated_headers)
 
     #Function to get existing data from the given table name and all the data which is from the passed in ids
+    @log_perf
     def _get_existing_data(self, table, id_list):
         
         #Pull in all incoming row ids so db can be queried for existing rows
@@ -246,6 +248,7 @@ class prizepicks_db:
         return self.read_query(sql_query)
 
     #Function to create timeseries entires for each entry in the incoming row if it exists
+
     def _add_timeseries(self, hdr_order, incoming_row, row_id, scrape_id, last_values):
     #If timeseries data does exist in the incoming row, then the row which must be added to the
     #mysql is returned
@@ -292,6 +295,7 @@ class prizepicks_db:
         return change_list
     
     #function to pull in all the last timeseries values for the passed in projection ids
+    @log_perf
     def _get_last_values(self, proj_ids):
 
         #Pull in all the data from the DB for the interested timeseries and turn it into a dict
@@ -301,6 +305,7 @@ class prizepicks_db:
         WHERE projection_id in ({','.join([str(proj_id) for proj_id in proj_ids])}) 
         ORDER BY parsenum DESC;
         """
+        self._log.debug(my_q)
         all_ts = self.read_query(my_q)
         #create dict to see what the latest value for a given projection is
         ts_dict = dict()
@@ -323,10 +328,6 @@ class prizepicks_db:
 
         #    scrape_id - the id of the scrape that this data is coming from.
     
-        insert_list = list()
-        change_list = list()
-        update_list = list()
-        timeseries_list = list()
         mapping = list()
         dts = list()
         translated_headers = list()
@@ -335,7 +336,6 @@ class prizepicks_db:
 
         #tuple of all the projection ids of the incoming data
         new_proj_ids = tuple(values[id_index] for values in data)
-
         #Pull into memory any data already be in the db to compare/update against
         existing_data = self._get_existing_data(table, new_proj_ids)
 
@@ -352,10 +352,8 @@ class prizepicks_db:
         # hould be added to a timeseries or not
         last_values = self._get_last_values(new_proj_ids)
 
-        #This loops through each of the incoming data rows to determine what changes need to be made in the db. Any changes that need to be made, the necessary 
-        #data to do that is added to the insert, update, or timeseries list as apropriate. These lists are then executed in batches into the db to make it fast
-        #Rather than calculate the index for each of the timeseries iteration of loop, do it once before we get into the loop. Also including 
-        #stat_type index as well since I need that too
+        #loop through each of the headers and determine which are timeseries so that they can be handled separatley from the items which are not 
+        # expected to change
         ts_hdr_inds = dict()
         for ts in self.PROJECTION_TIME_SERIES:
             try:
@@ -365,8 +363,30 @@ class prizepicks_db:
                 self._log.warning(f"01: tsntfnd={ts}")
                 ts_hdr_inds[ts] = None
 
+        #Call function that loops through each of the incoming data rows to determine what changes need to be made in the db. Any changes that need to be made, the 
+        #necessary data to do that is added to the insert, update, or timeseries list as apropriate. These lists are then executed in batches into the
+        #db to make it fast Rather than calculate the index for each of the timeseries iteration of loop, do it once before we get into the loop. Also
+        #including stat_type index as well since I need that too
+        insert_list, change_list, update_list, timeseries_list = self._loop_data(data, id_index, mapping, dts, data_dict, translated_headers, scrape_id, headers, last_values)
+
+        #Function which makes batch requests for the 3 tables to be updated
+        self._add_new_lines(insert_list, change_list, update_list, table, timeseries_list)
+            
+    #This loops through each of the incoming data rows to determine what changes need to be made in the db. Any changes that need to be made, the 
+    #necessary data to do that is added to the insert, update, or timeseries list as apropriate. These lists are then executed in batches into the
+    #db to make it fast Rather than calculate the index for each of the timeseries iteration of loop, do it once before we get into the loop. Also
+    #including stat_type index as well since I need that too
+    @log_perf
+    def _loop_data(self, data, id_index, mapping, dts, data_dict, translated_headers, scrape_id, headers, last_values):
+        
+        insert_list = list()
+        update_list = list()
+        change_list = list()
+        timeseries_list = list()
+        
         for i,incoming_row in enumerate(data):
-            #Map the data from the incoming row into a temp row so that it can be compared against whatever is already in the db in the correct order/format
+            #Map the data from the incoming row into a temp row so that it can be compared against whatever is already in the db in the correct 
+            # order/format
             temp_row = list()
             row_id = incoming_row[id_index]
             num_cols = len(mapping)
@@ -406,9 +426,9 @@ class prizepicks_db:
             #Call function to add any timeseries data to the timeseries list if it exists in the incoming row
             timeseries_list += self._add_timeseries(headers, incoming_row, row_id, scrape_id, last_values)
 
-        #Function which makes batch requests for the 3 tables to be updated
-        self._add_new_lines(insert_list, change_list, update_list, table, timeseries_list)
-            
+        return insert_list, change_list, update_list, timeseries_list
+
+    @log_perf
     def _add_new_lines(self, my_data_list, data_history_list, update_list, table_name, timeseries_list, row_id_index = 1):
         #Function takes various lists of data all of which needs to be updated in the db, and updates the db with that data
 

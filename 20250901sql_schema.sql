@@ -1,6 +1,6 @@
 -- MySQL dump 10.13  Distrib 8.0.33, for Win64 (x86_64)
 --
--- Host: 127.0.0.1    Database: prizepicks
+-- Host: 127.0.0.1    Database: pp dev
 -- ------------------------------------------------------
 -- Server version	8.0.33
 
@@ -193,7 +193,10 @@ CREATE TABLE `projection` (
   `score` varchar(90) DEFAULT NULL,
   `stat_type_id` varchar(10) DEFAULT NULL,
   `game` varchar(16) DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `league_index` (`league`),
+  KEY `player_index` (`new_player`),
+  KEY `stat_index` (`stat_type_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -208,7 +211,9 @@ CREATE TABLE `projection_change_history` (
   `projection_id` varchar(20) NOT NULL,
   `colname` varchar(32) NOT NULL,
   `newvalue` varchar(64) DEFAULT NULL,
-  `parsenum` int DEFAULT NULL
+  `parsenum` int DEFAULT NULL,
+  KEY `id_index` (`projection_id`),
+  KEY `parse_index` (`parsenum`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -223,7 +228,9 @@ CREATE TABLE `projection_timeseries` (
   `projection_id` int NOT NULL,
   `name` varchar(45) DEFAULT NULL,
   `val` float NOT NULL,
-  `parsenum` int DEFAULT NULL
+  `parsenum` int DEFAULT NULL,
+  KEY `id_index` (`projection_id`),
+  KEY `parse_index` (`parsenum`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -284,8 +291,10 @@ CREATE TABLE `scrape_data` (
   `league_num` tinyint unsigned NOT NULL,
   `store_time` datetime DEFAULT NULL,
   `is_cleaned` tinyint NOT NULL DEFAULT '0',
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=4005 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  PRIMARY KEY (`id`),
+  KEY `league_index` (`league_num`),
+  KEY `time_index` (`store_time`)
+) ENGINE=InnoDB AUTO_INCREMENT=10510 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -389,4 +398,4 @@ CREATE TABLE `team_timeseries` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-08-11 20:45:27
+-- Dump completed on 2025-09-01 13:48:56
