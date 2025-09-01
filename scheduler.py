@@ -11,6 +11,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import json
 from parsed_data import debug_exc
+from curl_cffi.requests.exceptions import Timeout
 
 class prizepicks_scheduler:
     
@@ -505,7 +506,6 @@ class prizepicks_scheduler:
 
                 cmd_type = nxt_cmd[1]
                 print(f"Executing cmd: {cmd_type}")
-                err_posted = False
             
                 #Get stats on db size
                 if cmd_type == 'sts':
@@ -520,20 +520,16 @@ class prizepicks_scheduler:
                         consec_errs = 0
                         type_errs[cmd_type] = 0
 
+                    #Rather than put all the handling code of all the exceptions in here, just do it all in a fucntion
                     except debug_exc as dbe:
-                        '''
-                        Eventually, if the problem is just related to the single cmd_type then we need to just evict it from the q or set it to lowest
-                        polling rate so that it doesnt keep clogging us up and doesnt stop everything else if that is all working properly
-                        '''
-                        print(f"Found exception while scraping pp. Logging this error. Counts:\n{consec_errs}\n{type_errs}")
-                        err_posted = dbe
-                        consec_errs += 1
-                        type_errs[cmd_type] += 1
+                        self._dbe_handler(dbe, cmd_type, type_errs, consec_errs)
+                        continue
 
-                if err_posted is not False:
-                        self._cmd_err_handler(err_posted, cmd_type, type_errs, consec_errs)
+                    #Wrap exception in dbe class and raise it
+                    except Exception as e:
+                        raise debug_exc(e, "2", {"cmd":nxt_cmd}, "SCHEDULER")                 
                 
-                #Reschedule the command that just executed or attempted to be executed
+                #Reschedule the command that just executed
                 self._update_queue(data)
 
             #If woken up and nothing to do, then go right on back to sleep
@@ -560,10 +556,60 @@ class prizepicks_scheduler:
         self._stop_loop = False
         return True
     
+    def _dbe_handler(self, dbe, cmd_type, type_errs, consec_errs):
+        '''
+        Eventually, if the problem is just related to the single cmd_type then we need to just evict it from the q or set it to lowest
+        polling rate so that it doesnt keep clogging us up and doesnt stop everything else if that is all working properly
+        '''
+        
+        reschedule = True   #Sometimes statndard reschedule is not wanted, so this control the case where we don't want to do that
+        dump_any = True     #Set to True to take snapshot on every error, set to false if not
+
+        #If the error is a timeout in getting the prizepicks api, it likely just means that internet connection was bad for a bit, so 
+        #just going to wait 5 min and try again
+        if isinstance(dbe.exc, Timeout):
+            self._handle_timeout(cmd_type, type_errs, dbe, consec_errs)
+            reschedule = False
+            dump_any = False
+
+        print(f"Found exception while scraping pp. Logging this error. Counts:\n{consec_errs}\n{type_errs}")
+        consec_errs += 1
+        type_errs[cmd_type] += 1
+        self._cmd_err_handler(dbe, cmd_type, type_errs, consec_errs, dump_any)
+
+        if reschedule is True:
+            self._update_queue(None)
+
+    
+    #Function to hanle logging and atttempt recovery from timeouts
+    def _handle_timeout(self, cmd_type, type_errs, dbe, consec_errs):
+        
+        #print to the console and all the relevant logs that the timeout occured, which command timed out and when it is rescheduled for
+        print(f"Found timeout in getting prizepicks API data, watiting 5 min to make next request. Counts:\n{consec_errs}\n{type_errs}")
+        new_time = datetime.now(timezone.utc) + timedelta(minutes=5)
+        err_msg = f'1: cmd={cmd_type} - nt={new_time.strftime("%Y-%m-%d %H:%M:%S")}'
+        self.sched_log.error(err_msg)
+        self.trace_log.error(err_msg)
+        self.err_log.error(err_msg)
+
+        #update the q so that the next command is not executed for another 5 min
+        self.cmd_q[0][0] = new_time
+
+        #update consec error counts and handle the error
+        consec_errs += 1
+        type_errs[cmd_type] += 1
+        self._cmd_err_handler(dbe, cmd_type, type_errs, consec_errs, dump = False)
+    
     #function to log all debug saved for exceptions from process of making API call to loading in DB
-    def _cmd_err_handler(self, dbe, ct, te,ce):
-        fn = dbe.dump()
+    def _cmd_err_handler(self, dbe, ct, te, ce, dump = True):
+        if dump is True:
+            fn = dbe.dump()
+        else:
+            fn = None
+
         if ce > 3 or te[ct] > 3:
+            if dump is False :
+                fn = dbe.dump()
             self.err_log.error(f"2222: ce={ce} - te={ct}:{te[ct]} - fn={fn}")
             raise RuntimeError(f"Too many failed commands in a row. Last command executed = {ct}")
         self.err_log.error(f"22: cmd={ct} - fn={fn}")

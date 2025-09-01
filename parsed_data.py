@@ -79,7 +79,7 @@ class debug_exc (Exception):
         self.exc = e
         self.caller = inspect.currentframe().f_back.f_code.co_name
         self.error_code = ec
-        self.trace_back = traceback.format_stack()
+        self.trace_back = e.__traceback__#traceback.format_stack()
         self.data_dict = dd
         self.prefix = p
         global log_path
@@ -96,8 +96,7 @@ class debug_exc (Exception):
         with open(fn,"w", encoding='utf-8') as f:
             f.write(f"{self.exc.__class__.__name__}\n\n")
             f.write(f"{self.caller} ERRORCODE: {self.error_code}\n\n")
-            for level in self.trace_back[1:-1]:
-                f.write(f"\t{level}")
+            f.write("".join(traceback.format_exception(type(self.exc), self.exc, self.exc.__traceback__)))
             f.write("\n")
             for k,v in self.data_dict.items():
                 f.write(f"{k} : {v}\n")
