@@ -112,10 +112,19 @@ class prizepicks_db:
         #copy of those names
         return self._external_data_names.copy()
 
-    def _create_db_connection(self, db_name="pp dev", host_name= None, user_name = None, user_password = None):
-        
+    def _create_db_connection(self, db_name="pp dev", host_name= None, user_name = None, user_password = None):      
         #Function to create a connection to the local mySQL database. Credentials can be passed in or they default to None and if host_name is left as None
         #then the root_login() function will get the root login data form a file somewhere on the computer
+
+        #If this is is in a file indicating that this is running prod, then make sure it points to prod db, not dev db
+        if 'pp_prod' in os.path.abspath("."):
+            db_name = "prizepicks"
+            print("Connecting to PROD DB")
+            self._log.info(f"PROD")
+        else:
+            print("Connecting to DEV DB")
+            self._log.info(f"DEV")
+
         if host_name is None:
             creds = self._root_login()
             host_name = creds['hn']
