@@ -61,7 +61,7 @@ class player_stats:
         self.dnp = player_dnp
         self.stats = player_stats
 
-log_path = f"{str(os.path.dirname(__file__))}\\logs"
+log_path = os.path.join(os.path.dirname(__file__),"logs")
 
 #wrapper class to capture exception info and data to debug
 class debug_exc (Exception):
@@ -83,7 +83,7 @@ class debug_exc (Exception):
         self.data_dict = dd
         self.prefix = p
         global log_path
-        self.file_path = f"{log_path}\\SNAP_{self.prefix}_{dt.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+        self.file_path = os.path.join(log_path,f"SNAP_{self.prefix}_{dt.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt")
 
     '''
     I want to limit the number of snaps that are saved, so in here, should run a function which checks to see if I need to delete a snap before I 

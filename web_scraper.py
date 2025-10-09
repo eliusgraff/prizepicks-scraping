@@ -31,7 +31,8 @@ def get_prizepicks(league, ppdb):
 
     #Catch any issues with get request and wrap error in debug_exc class for future debug
     try:
-        webpage = requests.get(api_call, impersonate='chrome110')
+        print(f"APIEP = {api_call}")
+        webpage = requests.get(api_call, impersonate='chrome116')
     except Exception as e:
         raise debug_exc(e, "1", {"apiep":api_call}, log_prefix)
         

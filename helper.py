@@ -1,5 +1,5 @@
 import shutil
-import pathlib
+#import pathlib
 import os
 
 def print_dict(my_dict):
@@ -44,6 +44,7 @@ def dev_files_check():
     whenever I cant find what I need. All the dev files are stored outside of the repo so that when they are deleted when I rebase,
     I can simply pull them back in and we are all good!
     '''
+    raise NotImplementedError
     dest_dir = pathlib.Path(__file__).parent.resolve()
     src_dir = str(pathlib.Path(__file__).parent.resolve())
     src_dir.rfind('\\')

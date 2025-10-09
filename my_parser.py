@@ -7,12 +7,12 @@ from parsed_data import debug_exc
 
 
 ###Code which runs when this module is imported###
-log_path = f"{str(os.path.dirname(__file__))}\\logs"
+log_path = os.path.join(os.path.dirname(__file__),"logs")
 if not os.path.isdir(log_path): 
     os.mkdir(log_path)
 LOG = logging.getLogger("parser")
 LOG.setLevel("DEBUG")
-my_handler = RotatingFileHandler(f"{log_path}\\parser.log", maxBytes=5000000, backupCount=3)
+my_handler = RotatingFileHandler(os.path.join(log_path,"parser.log"), maxBytes=5000000, backupCount=3)
 my_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
 LOG.addHandler(my_handler)
 

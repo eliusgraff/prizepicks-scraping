@@ -41,7 +41,7 @@ class prizepicks_scheduler:
     sched_log = None # logger object for scheduler logging
     err_log = None # logger object for error logging
     trace_log = None # logger object for tracing command flow of the project
-    log_path = f"{str(os.path.dirname(__file__))}\\logs"
+    log_path = os.path.join(os.path.dirname(__file__),"logs")
 
     parse_errors = 0 # counter for how many consecutive parser errors are seen
     parse_errtype = dict() # dict to keep track of consec parse errors on a by-league basis
@@ -93,7 +93,7 @@ class prizepicks_scheduler:
         stats_logname = f"{__name__}_stats"
         self.stats_log = logging.getLogger(stats_logname)
         self.stats_log.setLevel("INFO")
-        stats_file_handler = RotatingFileHandler(f"{self.log_path}\\{stats_logname}.log", maxBytes=5000000, backupCount=5)
+        stats_file_handler = RotatingFileHandler(os.path.join(self.log_path,f"{stats_logname}.log"), maxBytes=5000000, backupCount=5)
         stats_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
         self.stats_log.addHandler(stats_file_handler)
 
@@ -101,7 +101,7 @@ class prizepicks_scheduler:
         sched_logname = f"{__name__}_sched"
         self.sched_log = logging.getLogger(sched_logname)
         self.sched_log.setLevel("INFO")
-        sched_log_file_handler = RotatingFileHandler(f"{self.log_path}\\{sched_logname}.log", maxBytes=5000000, backupCount=3)
+        sched_log_file_handler = RotatingFileHandler(os.path.join(self.log_path,f"{sched_logname}.log"), maxBytes=5000000, backupCount=3)
         sched_log_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
         self.sched_log.addHandler(sched_log_file_handler)
 
@@ -109,7 +109,7 @@ class prizepicks_scheduler:
         trace_logname = f"{__name__}_trace"
         self.trace_log = logging.getLogger(trace_logname)
         self.trace_log.setLevel("INFO")
-        trace_log_file_handler = RotatingFileHandler(f"{self.log_path}\\{trace_logname}.log", maxBytes=5000000, backupCount=3)
+        trace_log_file_handler = RotatingFileHandler(os.path.join(self.log_path,f"{trace_logname}.log"), maxBytes=5000000, backupCount=3)
         trace_log_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
         self.trace_log.addHandler(trace_log_file_handler)
 
@@ -117,7 +117,7 @@ class prizepicks_scheduler:
         err_logname = f"{__name__}_err"
         self.err_log = logging.getLogger(err_logname)
         self.err_log.setLevel("INFO")
-        err_log_file_handler = RotatingFileHandler(f"{self.log_path}\\{err_logname}.log", maxBytes=5000000, backupCount=3)
+        err_log_file_handler = RotatingFileHandler(os.path.join(self.log_path,f"{err_logname}.log"), maxBytes=5000000, backupCount=3)
         err_log_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
         self.err_log.addHandler(err_log_file_handler)
 

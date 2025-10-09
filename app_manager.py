@@ -22,8 +22,9 @@ def save_wp_data(wp, fn):
 
 def save_wp_snapshot(wp, scrapenum, count):
     curdir_path = os.path.dirname(__file__)
-    log_path = f"{str(curdir_path)}\\logs\\"
-    fn = f"{log_path}Snapshot_{scrapenum}_{count}.txt"
+    
+    log_path = os.path.join(curdir_path,'logs')
+    fn = os.path.join(log_path,f"Snapshot_{scrapenum}_{count}.txt")
     save_wp_data(wp, fn)
     print(f"Saved snapshot to {fn}")
 

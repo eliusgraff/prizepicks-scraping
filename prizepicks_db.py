@@ -70,7 +70,11 @@ class prizepicks_db:
 
     #Create a log for this class
     def _create_log(self):
-        log_path = f"{str(os.path.dirname(__file__))}\\logs"
+        
+        #create path for log files to go
+        log_path = os.path.join(os.path.dirname(__file__),"logs")
+        file_handler_path = os.path.join(log_path,".log")
+
         if not os.path.isdir(log_path): 
             os.mkdir(log_path)
 
@@ -78,13 +82,12 @@ class prizepicks_db:
         stats_logname = f"{__name__}_stats"
         self._log = logging.getLogger(stats_logname)
         self._log.setLevel("INFO")
-        stats_file_handler = RotatingFileHandler(f"{log_path}\\{stats_logname}.log", maxBytes=5000000, backupCount=5)
+        stats_file_handler = RotatingFileHandler(file_handler_path, maxBytes=5000000, backupCount=5)
         stats_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
         self._log.addHandler(stats_file_handler)
 
-    #function to get
+    #Run to concisely get all the names of all the data names for a given data type parsed from the prizepicks api
     def _set_external_data_names(self):
-        #Run to concisely get all the names of all the data names for a given data type parsed from the prizepicks api
         #This function runs through all the tables of the db, which are hard-coded into the _MY_TABLES member variale
         #And runs through all the tables in the db which could contain data about them and stores it in a dict which
         #Is stored as a member variable
@@ -112,11 +115,11 @@ class prizepicks_db:
         #copy of those names
         return self._external_data_names.copy()
 
-    def _create_db_connection(self, db_name="pp dev", host_name= None, user_name = None, user_password = None):      
+    def _create_db_connection(self, db_name="pp_dev", host_name= None, user_name = None, user_password = None):      
         #Function to create a connection to the local mySQL database. Credentials can be passed in or they default to None and if host_name is left as None
         #then the root_login() function will get the root login data form a file somewhere on the computer
 
-        #If this is is in a file indicating that this is running prod, then make sure it points to prod db, not dev db
+        #If this is in a file indicating that this is running prod, then make sure it points to prod db, not dev db
         if 'pp_prod' in os.path.abspath("."):
             db_name = "prizepicks"
             print("Connecting to PROD DB")
