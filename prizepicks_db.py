@@ -270,7 +270,11 @@ class prizepicks_db:
             #Not all timeseries data is always guarunteed, so this check to make sure that the timeseries data actually exists before trying to add anything. 
             #If it does not exist then just skip it, that's ok.
             '''Probably faster way to do this somehow rather than look for the same indexes each time'''
-            ts_ind = hdr_order.index(timeseries)
+            try:
+                ts_ind = hdr_order.index(timeseries)
+            except ValueError:
+                continue
+
             kw = self._create_keyword([row_id,timeseries])
 
             if incoming_row[ts_ind] is not None:

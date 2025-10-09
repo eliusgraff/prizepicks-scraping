@@ -31,11 +31,9 @@ def get_prizepicks(league, ppdb):
 
     #Catch any issues with get request and wrap error in debug_exc class for future debug
     try:
-        print(f"APIEP = {api_call}")
-        webpage = requests.get(api_call, impersonate='chrome116')
+        webpage = requests.get(api_call, impersonate='chrome')
     except Exception as e:
         raise debug_exc(e, "1", {"apiep":api_call}, log_prefix)
-        
     #Catch any issues with get json conversion and wrap error in debug_exc class for future debug
     try:
         wp_json = webpage.json()
@@ -43,5 +41,4 @@ def get_prizepicks(league, ppdb):
         raise debug_exc(e, "2", {"wp":webpage, "apiep":api_call}, log_prefix)
     
     scrape_id = ppdb.create_scrape_id(0, league_num, datetime.now(timezone.utc).replace(tzinfo=None))
-
     return (wp_json, scrape_id, api_call)
