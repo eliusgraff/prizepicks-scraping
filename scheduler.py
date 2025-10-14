@@ -240,8 +240,8 @@ class prizepicks_scheduler:
         self._stop_loop = True
         return self.loop_wakeup_time
 
+    #Main function which will be called by the user to run the scheduler. This handles the runtime the user specifies.
     def run_scheduler(self, runtime_mins = 0):
-        #this is the main function which will be called by the user to run the scheduler. This handles the runtime the user specifies.
 
         #If runtime is negative, then nothing to do, raise an error
         if runtime_mins < 0:
@@ -249,17 +249,20 @@ class prizepicks_scheduler:
             raise ValueError("Runtime minutes must be a non-negative number.")
         
         self.trace_log.info(f"0: {runtime_mins}")
-
         start_time = datetime.now()
 
-        #If runtime is set to some number of mins, then start a thread to run the scheduler loop and wait for that many minutes before stopping the
-        #loop
+        #If runtime is set to some number of mins, then start a thread to run the scheduler loop and wait for that many minutes before stopping the loop
         if runtime_mins > 0:
             self.trace_log.info(f"00: mins={runtime_mins}")
             try:
                 action_loop = threading.Thread(target=self._schedule_loop, args=())
                 action_loop.start()
-                time.sleep(runtime_mins * 60)
+
+                #Sleep program for 2x loop wakeup time while the loop is meant to be running. This gives this thread the ability to wake up and respond
+                #to exceptions being raised rather than just let the program hang until the runtime expires
+                num_loops = runtime_mins*60/self.loop_wakeup_time/2
+                for _ in range(int(num_loops)): time.sleep(2*self.loop_wakeup_time)
+
             except KeyboardInterrupt:
                 #User input stopping loop before timeout
                 self.trace_log.info(f"01: tme={(datetime.now()-start_time)/60} - tot={runtime_mins}")
@@ -268,15 +271,23 @@ class prizepicks_scheduler:
             self.stop_scheduler()
             action_loop.join(timeout = self.loop_wakeup_time+1)
             
-            #If child doesn't rejoin in reasonable time, then kill the whole scheduler
+            #If child doesn't rejoin in reasonable time, then kill the whole thing
             if action_loop.is_alive():
                 self.err_log.critical(f"1")
                 exit("Houston, we have a problem! Scheduler did not stop in time. Exiting.")
         
-        #If runtime is 0, then just run the loop forever until program exits or user stops it
+        #If runtime is 0, then just run the loop forever until program exits or user stops it. This does not need a loop to check itself since this
+        #is just run in a single thread
         else:
             self.trace_log.info("0000")
-            self._schedule_loop()
+            try:
+                self._schedule_loop()
+            except KeyboardInterrupt:
+                #User can stop the loop with ctrl+c, this catches that and stops things gracefully so that everything can be saved correctly
+                print("User stopped loop execution")
+                self.trace_log.info(f"01: tme={(datetime.now()-start_time)/60} - tot={runtime_mins}")
+            
+            self.stop_scheduler()
 
         return True
         
@@ -487,21 +498,20 @@ class prizepicks_scheduler:
 
         self.trace_log.debug("0")
         while True:
+            #Check if loop is stopped by parent thread
             if self._stop_loop:
-                #Scheduler loop stopped gracefully
                 self.trace_log.info("00")
                 break
 
             #Checking to see if it is time to execute the next command in the queue
+            #execute next command if it is scheduled to be done before the next time the loop is supposed to wake up
             nxt_cmd = self.cmd_q[0]
             my_delta = nxt_cmd[0] - datetime.now(timezone.utc)
             sec_to_exec = my_delta.total_seconds()
             data = None
-
-            #execute next command if it is scheduled to be done before the next time the loop is supposed to wake up
             exec_cmd = sec_to_exec < (self.loop_wakeup_time/2)
 
-            #If next command is ready to be executed, then execute it
+            #execute command if it is time
             if exec_cmd:
 
                 cmd_type = nxt_cmd[1]
@@ -511,6 +521,7 @@ class prizepicks_scheduler:
                 if cmd_type == 'sts':
                     self._get_db_stats()
                 
+                #if not status command, then need to scrape prizepicks for data
                 else:
                     try:
                         #Make API call to get data for a league
@@ -547,10 +558,9 @@ class prizepicks_scheduler:
             
             try:
                 time.sleep(sleep_time)
-            except KeyboardInterrupt:
-                print("User input stopping execution early!")
+            except KeyboardInterrupt as e:
                 self._stop_loop = True
-                break
+                raise e
 
         #If loop is gracefully broken out of, then reset the stop flag so it can be restarted without issue if needed
         self._stop_loop = False
@@ -680,7 +690,7 @@ class prizepicks_scheduler:
             self.queue = caller_queue
             self.rates = caller_rates
 
-
 if __name__ == "__main__":
     s = prizepicks_scheduler()
     s.run_scheduler()
+    del s
