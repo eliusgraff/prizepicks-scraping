@@ -1,5 +1,4 @@
 import shutil
-#import pathlib
 import os
 
 def print_dict(my_dict):
@@ -15,6 +14,8 @@ def get_secret(query, fn = "secrets.txt"):
     This function only parses lines if query matches the description. It puts the matched lines into a dictionary where the 
     variable names are the keys and the values are the values.
     '''
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    fn = os.path.join(dir_path, fn)
     my_dict = {}
     with open(fn, "r") as f:
         '''---Going line by line in file looking for query---'''

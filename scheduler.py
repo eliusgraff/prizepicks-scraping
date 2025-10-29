@@ -11,11 +11,10 @@ import logging
 from logging.handlers import RotatingFileHandler
 import json
 from parsed_data import debug_exc
-from curl_cffi.requests.exceptions import Timeout
 
 class prizepicks_scheduler:
     
-    scheduler_filename = "scheduler_file.pkl" #filename where the scheduler info is stored when scheduler is deleted
+    scheduler_filename = os.path.join(os.path.dirname(__file__),"scheduler_file.pkl") #filename where the scheduler info is stored when scheduler is deleted
     cmd_q = list() #queue to track the order of commands the be executed, in the order they will be executed in
     schedule_rates = dict() #polling rate for each of the types of commands in the cmd_q
     _db_obj = prizepicks_db.prizepicks_db() #connection to the prizepicks db
@@ -54,9 +53,10 @@ class prizepicks_scheduler:
         #Set up loggers
         self._create_loggers()
         self.trace_log.critical("INIT")
-
+        input(f"sched fn = {self.scheduler_filename}")
         #Load in queue data from a file if it exists, otherwise create a default queue.
         if not os.path.isfile(self.scheduler_filename):
+            print("Cant load schedule file, setting default")
             self.err_log.warning(f"1: {self.scheduler_filename}")
             self._create_default_queue()
         
@@ -577,10 +577,13 @@ class prizepicks_scheduler:
 
         #If the error is a timeout in getting the prizepicks api, it likely just means that internet connection was bad for a bit, so 
         #just going to wait 5 min and try again
+        '''---Eventually will need to add support for this I think since the curl commands do time out from time to time---'''
+        '''
         if isinstance(dbe.exc, Timeout):
             self._handle_timeout(cmd_type, type_errs, dbe, consec_errs)
             reschedule = False
             dump_any = False
+        '''
 
         print(f"Found exception while scraping pp. Logging this error. Counts:\n{consec_errs}\n{type_errs}")
         consec_errs += 1
@@ -691,6 +694,17 @@ class prizepicks_scheduler:
             self.rates = caller_rates
 
 if __name__ == "__main__":
+
+    user_input = input("Booting up prizepicks scraper, 'y' will begin the program, anything else will exit\n")
+    if user_input.upper() != 'Y':
+        exit("Not starting anything. Exiting the program.")
+
     s = prizepicks_scheduler()
-    s.run_scheduler()
+    try:
+        s.run_scheduler()
+    except Exception as e:
+        '''---Need to add logging to this in order to catch any undexpected stuff---'''
+        del s
+        raise e
+    
     del s
