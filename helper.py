@@ -5,15 +5,21 @@ def print_dict(my_dict):
     for k,v in my_dict.items():
         print(f"{k}\t{v}")
 
+#Function used to get personal info from secret file. Caller passes in a string 'query' and this function
+#goes line by line in the fn passed into the function looking for the query. The file is expected to be formatted like
+#(description)_(variable name)=(value). Example for mysql database password would be something like: 'mysql_pw=my_password'.
 def get_secret(query, fn = "secrets.txt"):
-    '''
-    Function used to get personal info from secret file. Caller passes in a string 'query' and this function
-    goes line by line in the fn passed into the function looking for the query. The file is expected to be formatted like
-    (description)_(variable name)=(value). Example for mysql database password would be something like: 'mysql_pw=my_password'.
+    
 
-    This function only parses lines if query matches the description. It puts the matched lines into a dictionary where the 
-    variable names are the keys and the values are the values.
-    '''
+    #This function only parses lines if query matches the description. It puts the matched lines into a dictionary where the 
+    #variable names are the keys and the values are the values.
+    
+        #requires that the user have a file called 'secrets.txt' where 3 of the lines in it are:
+        #mysql_un=username
+        #mysql_pw=password
+        #mysql_hn=hostname
+        #mysql_db_name=db_name
+
     dir_path = os.path.dirname(os.path.realpath(__file__))
     fn = os.path.join(dir_path, fn)
     my_dict = {}

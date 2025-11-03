@@ -27,14 +27,16 @@ class prizepicks_scheduler:
         "WNBA",
         "Soccer",
         "NBA",
-        "sts"
+        "sts",
+        "dmp_sch"
     ]
 
     loop_wakeup_time = 15 #in seconds, how often the loop should wake up to check for new requests
     default_req_rate = 300 # five min in seconds
     min_req_rate = 86400 # one day in seconds
     max_req_rate = 60 # one min in seconds
-    status_rate = 3600 # one hour in seconds - will update db status every hour
+    stats_rate = 3600 # one hour in seconds - will update db stats every hour
+    dump_rate = 600 # 10 min in seconds
 
     stats_log = None # logger object for db stats logging
     sched_log = None # logger object for scheduler logging
@@ -53,7 +55,6 @@ class prizepicks_scheduler:
         #Set up loggers
         self._create_loggers()
         self.trace_log.critical("INIT")
-        input(f"sched fn = {self.scheduler_filename}")
         #Load in queue data from a file if it exists, otherwise create a default queue.
         if not os.path.isfile(self.scheduler_filename):
             print("Cant load schedule file, setting default")
@@ -138,13 +139,14 @@ class prizepicks_scheduler:
 
         #validate that the saved queue and rates are valid. If not, log the bad q and then reset everything to default
         if not self._assert_queue() or not self._assert_rates():
+            '''---Add in option to fix the queue---'''
             self._create_default_queue()
             return 1
         
         return True
 
+    #function simply to check if all the rates are valid. If not, returns false. otherwise returns true.
     def _assert_rates(self):
-        #function simply to check if all the rates are valid. If not, returns false. otherwise returns true.
         for req_type, rate in self.schedule_rates.items():
             
             #Make sure that the requests are all being made at an acceptable rate
@@ -216,7 +218,9 @@ class prizepicks_scheduler:
             self.cmd_q.append((datetime.now(timezone.utc), each))
 
             if each == 'sts':
-                self.schedule_rates[each] = self.status_rate
+                self.schedule_rates[each] = self.stats_rate
+            elif each == 'dmp_sch':
+                self.schedule_rates[each] = self.dump_rate
             else:
                 self.schedule_rates[each] = self.default_req_rate
 
@@ -229,7 +233,8 @@ class prizepicks_scheduler:
         for league in self.known_leagues:
             self.cmd_q.append((datetime.now(timezone.utc), league))
             self.schedule_rates[league] = self.default_req_rate
-        self.schedule_rates['sts'] = self.status_rate
+        self.schedule_rates['sts'] = self.stats_rate
+        self.schedule_rates['dmp_sch'] = self.dump_rate
 
     def stop_scheduler(self):
         #Function to stop the scheduler loop. This will set the stop flag to true and then wait for the loop to finish next time it is able. Function
@@ -516,13 +521,14 @@ class prizepicks_scheduler:
 
                 cmd_type = nxt_cmd[1]
                 print(f"Executing cmd: {cmd_type}")
+             
             
                 #Get stats on db size
                 if cmd_type == 'sts':
                     self._get_db_stats()
                 
-                #if not status command, then need to scrape prizepicks for data
-                else:
+                #if not dump scheduler command, then need to scrape prizepicks for data
+                elif cmd_type != 'dmp_sch':
                     try:
                         #Make API call to get data for a league
                         data = self._scrape_prizepicks_data(cmd_type)
@@ -542,6 +548,10 @@ class prizepicks_scheduler:
                 
                 #Reschedule the command that just executed
                 self._update_queue(data)
+
+                #check to dump scheduler after it has been re-queued so that the first command executed after restart is not always a schedule dump again
+                if cmd_type == 'dmp_sch':
+                    self._save_queue_data()
 
             #If woken up and nothing to do, then go right on back to sleep
             else:
@@ -566,6 +576,7 @@ class prizepicks_scheduler:
         self._stop_loop = False
         return True
     
+    #Function to handle db-realted errors
     def _dbe_handler(self, dbe, cmd_type, type_errs, consec_errs):
         '''
         Eventually, if the problem is just related to the single cmd_type then we need to just evict it from the q or set it to lowest
@@ -592,7 +603,6 @@ class prizepicks_scheduler:
 
         if reschedule is True:
             self._update_queue(None)
-
     
     #Function to hanle logging and atttempt recovery from timeouts
     def _handle_timeout(self, cmd_type, type_errs, dbe, consec_errs):
