@@ -115,24 +115,19 @@ class prizepicks_db:
         #copy of those names
         return self._external_data_names.copy()
 
-    def _create_db_connection(self, db_name="pp_dev", host_name= None, user_name = None, user_password = None):      
+    def _create_db_connection(self, db_name = None, host_name = None, user_name = None, user_password = None):      
         #Function to create a connection to the local mySQL database. Credentials can be passed in or they default to None and if host_name is left as None
         #then the root_login() function will get the root login data form a file somewhere on the computer
 
-        #If this is in a file indicating that this is running prod, then make sure it points to prod db, not dev db
-        if 'pp_prod' in os.path.abspath("."):
-            db_name = "prizepicks"
-            print("Connecting to PROD DB")
-            self._log.info(f"PROD")
-        else:
-            print("Connecting to DEV DB")
-            self._log.info(f"DEV")
-
-        if host_name is None:
-            creds = self._root_login()
+        #If no db name is passed in, then they are all loaded in from secrets file
+        if db_name is None:
+            creds = helper.get_secret("mysql")
+            db_name = creds['db_name']
             host_name = creds['hn']
             user_name = creds['un']
             user_password = creds['pw']
+
+        print(f"Connecting to '{db_name}' DB")
 
         connection = mysql.connector.connect(
             host=host_name,
@@ -142,40 +137,8 @@ class prizepicks_db:
         )
 
         #MySQL Database connection successful
-        self._log.info(f"0")
+        self._log.info(f"0: db={db_name}")
         return connection
-    
-    '''Long term, this should not need to be root user'''
-    #This function is used to retrive the username, host name, and password to gain access to the local mySQL database. 
-    def _root_login(self):
-        
-        #requires that the user have a file called 'secrets.txt' where 3 of the lines in it are:
-        #mysql_un=username
-        #mysql_pw=password
-        #mysql_hn=hostname
-        
-        #So, to access this, that file must be setup beforehand and then this function will work properly as it
-        #is simply reading those 3 items from the file. It muse have *accurate* user info of the 3
-        #fields above to get into the SQL DB
-        
-        my_dict = helper.get_secret("mysql")
-        #Checking to make sure all the necessary parts were read from file
-        not_found_list = []
-        if my_dict.get('un') is None: 
-            not_found_list.append('un')
-
-        if my_dict.get('pw') is None: 
-            not_found_list.append('pw')
-
-        if my_dict.get('hn') is None: 
-            not_found_list.append('hn')
-
-        if len(not_found_list) > 0:
-            #Missing values in dict, will probably cause errors later...
-            self._log.warning(f"01: ntfnd={not_found_list}")
-            return None
-
-        return my_dict
 
     #Function called by app manager to send the parsed data to the local mySQL database
     def send_to_sql(self, parsed_data_obj, scrape_id):

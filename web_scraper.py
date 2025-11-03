@@ -71,7 +71,7 @@ def cml_curl(api_ep):
         # Handle errors if the curl command returns a non-zero exit code
         print(f"Curl command failed with error code {e.returncode}")
         print(f"Stderr: {e.stderr}")
-        input(f"Need to log this, and raise the formatted exception so snapshot can be taken")
+        raise debug_exc(e, e.returncode, {"apiep":api_ep, "cmd":cmd, "curl_err":e.stderr})
 
     return result.stdout
 

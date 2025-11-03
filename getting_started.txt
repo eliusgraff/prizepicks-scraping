@@ -1,0 +1,32 @@
+---GETTING STARTED---
+0) Download and set up mysql database. Keep track of the root username and password
+
+---CREATING SQL DB WITH LATEST SCHEMA---
+1) Create mysql connection in terminal with root un and pw
+    sudo mysql -u root -p
+        cml will prompt you for root pw
+
+2) Create the database with your desired database name - in my case, it is 'prizepicks_prod'. For a development database perhaps 'prizepicks_dev' is more appropriate
+    CREATE DATABASE prizepicks_prod;
+
+3) Tell mysql which database you want to query
+    USE prizepicks_prod;
+
+4) Copy the latest sql schema from the repo and pase it into the command line
+    At time of writing the file is '20250901sql_schema.sql'
+
+5) Validate that it all worked by checking that all the expected tables are in there and all the tables have the expected columns with the following commands:
+    SHOW TABLES;
+        This will spit out all the table names, check to make sure they are all there
+    DESCRIBE {table name}
+        Replace {table name} with the name of the table you want to validate the columns for. This will show not just all the column names for the table but also what type each of those columns is
+
+---Setting up files to read from
+6) Create a file called 'secrets.txt' in the same directory as the helper.py file which has the following lines:
+    mysql_un={username}
+    mysql_pw={password}
+    mysql_hn={hostname}
+    mysql_db_name={db_name}
+        NOTE: username does not have to be root, I just use root because so I don't have to manage permissions.
+        For mysql_hn, I use 'localhost' but your system may be different, so make sure that is configured for your system. I'm not a mysql expert so I just Google if I need help
+        The mysql_db_name should match your DB's name. I have one for dev and one for prod, so just make sure this is looking for the database you are trying to access
