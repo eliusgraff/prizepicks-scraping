@@ -30,3 +30,14 @@
         NOTE: username does not have to be root, I just use root because so I don't have to manage permissions.
         For mysql_hn, I use 'localhost' but your system may be different, so make sure that is configured for your system. I'm not a mysql expert so I just Google if I need help
         The mysql_db_name should match your DB's name. I have one for dev and one for prod, so just make sure this is looking for the database you are trying to access
+---For creating an 'app' to run the program automatically at launch
+7) On my linux system in the /.config/autostart directory I'm created 'prizepicks-scraping.desktop' and included the below info:
+	[Desktop Entry]
+	Version=1.0
+	Type=Application
+	Name=Prizepicks Scraping
+	Terminal=true
+	Comment=Polls prizepicks and save data in sql database
+	Exec=/usr/bin/python3 {path to prodcution repo}/scheduler.py
+	Categories=Utilities
+Then I used the GNOME Tweaks app to auto-launch the 'Prizepicks Scraping' app I created every time the computer boots up. There may be other ways to do this, but this seems to work for my purposes.
