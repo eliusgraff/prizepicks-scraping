@@ -75,7 +75,7 @@ class debug_exc (Exception):
     file_path = None
 
     #Constructor to take in the initial exception and store it along with additional debug info to be dumpped to a file 
-    def __init__(self, e, ec, dd, p):
+    def __init__(self, e, ec, dd, p=None):
         self.exc = e
         self.caller = inspect.currentframe().f_back.f_code.co_name
         self.error_code = ec

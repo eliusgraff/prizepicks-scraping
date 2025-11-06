@@ -7,6 +7,7 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 import traceback
+import subprocess
 
 #Helper class to help with holding data for many to many relationships. To compare and decide what needs to be updated
 class one_to_many:
@@ -64,6 +65,7 @@ class prizepicks_db:
 
     def __init__(self):
         self._create_log()
+        self.compare_sql_schema()
         self._sql_conn = self._create_db_connection()
         self._sql_cursor = self._sql_conn.cursor()
         self._set_external_data_names()
@@ -674,3 +676,100 @@ class prizepicks_db:
         self._sql_cursor.execute(size_query)
         result = self._sql_cursor.fetchall()
         return result
+
+    def compare_sql_schema(self):
+    
+        my_creds = helper.get_secret("mysql")
+        dir_path = os.path.dirname(os.path.abspath(__file__))
+        fn = os.path.join(dir_path, my_creds['schema_file'])
+        sudo = my_creds.get("sudo")
+
+        if sudo is not None:
+            schema_diff_cmd = f"echo '{sudo}' | sudo -S mysqldump -u {my_creds['un']} --password={my_creds['pw']} --no-data {my_creds['db_name']} | diff - {fn}"
+        else:
+            schema_diff_cmd = f"sudo mysqldump -u {my_creds['un']} --password={my_creds['pw']} --no-data {my_creds['db_name']} | diff - {fn}"
+        
+        try:
+            result = subprocess.run(schema_diff_cmd, shell=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            # Handle errors if the curl command returns a non-zero exit code
+            print(f"command failed with error code {e.returncode}")
+            print(f"Stderr: {e.stderr}")
+
+        actual = []
+        expected = []
+
+        #These are the things that the program is going to look for when it decides if the changes in the diff are acceptable or not
+        change_allowed = {
+            "AUTO_INCREMENT=",
+        }
+
+        rows = result.stdout.splitlines()
+        line_nums = rows[0]
+
+        #going through each of the rows of the diff output and check to see if they are acceptable changes
+        for row in rows[1:]:
+
+            #Assign correct string based on whether they are the sql_schema or the expected_schema
+            if row[0] == '<': actual.append(row[2:])
+            elif row[0] == '>': expected.append(row[2:])
+
+            #Ignore spacer rows
+            elif row == '---': continue
+
+            #If none of the above then compare the lines
+            else:
+
+                #Go through the list and first remove all the lines that are either comments or just whitespaces
+                for i in reversed(range(len(actual))):
+                    if actual[i][:2] == "--":
+                        del actual[i]
+                    elif len(actual[i].replace(" ","")) == 0:
+                        del actual[i]
+                for i in reversed(range(len(expected))):
+                    if expected[i][:2] == "--":
+                        del expected[i]
+                    elif len(expected[i].replace(" ","")) == 0:
+                        del expected[i]
+
+                #If not the same length, then schema probably different - return false
+                if len(actual) != len(expected):
+                    return False
+                
+                #go through all the existing rows and see if they are the same with allowed changes removed
+                for i in range(len(actual)):
+
+                    actual_comp = actual[i]
+                    expected_comp = expected[i]
+
+                    #Look to see if any allowable changes exist in the row
+                    for name in change_allowed:
+
+                        #Check if the alloweable change exists in the row, and if so, where
+                        change_a = actual[i].find(name)
+                        change_e = expected[i].find(name)
+
+                        #If not found in either line, then check for next one
+                        if change_e == -1 and change_a == -1:
+                            continue
+
+                        #If an allowable change is found, then remove that part of the row
+                        if change_a > -1:
+                            delim = actual_comp.find(" ", change_a)
+                            actual_comp = actual_comp[:change_a] + actual_comp[delim:]
+
+                        if change_e > -1:
+                            delim = expected_comp.find(" ", change_e)
+                            expected_comp = expected_comp[:change_e] + expected_comp[delim:]
+
+
+                    #If these are not the same the change is to be considered unacceptable and return False
+                    if actual_comp.replace(" ","") != expected_comp.replace(" ",""):
+                        self._log.critical(f"1: lnum={line_nums} exp={expected_comp} act={actual_comp}")
+                        raise debug_exc (ValueError("Expected sql schema is not same as actual"), "1", {"lnum":{line_nums}, "exp":{expected_comp}, "act":actual_comp}, "PPDB")
+
+                actual = []
+                expected = []
+                line_nums = row
+                
+        return True
