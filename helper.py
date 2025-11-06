@@ -19,8 +19,13 @@ def get_secret(query, fn = "secrets.txt"):
         #mysql_pw=password
         #mysql_hn=hostname
         #mysql_db_name=db_name
+        #OPTIONALLY if you are in a secure environment you can include the password to your sudo command so that you are not 
+        #prompted for it each time. This is obviously very dangerous so please only do this if you are being very careful
+        #the password won't be printed to the command line directly but will be used in the python subprocess call to run
+        #commands in the shell the keyword to do this is sudo
+        #mysql_sudo=sudo_password
 
-    dir_path = os.path.dirname(os.path.realpath(__file__))
+    dir_path = os.path.dirname(os.path.abspath(__file__))
     fn = os.path.join(dir_path, fn)
     my_dict = {}
     with open(fn, "r") as f:

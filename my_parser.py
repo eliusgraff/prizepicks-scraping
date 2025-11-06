@@ -45,7 +45,7 @@ def parse_webpage(json_data, pp_db):
     try:
         includes = parse_included_data(json_data.get("included"), col_orders)
     except Exception as e:
-        raise debug_exc(e, "2", {"inclds":json_data.get("included"), "col_ordr":col_orders})
+        raise debug_exc(e, "2", {"inclds":json_data.get("included"), "col_ordr":col_orders}, "PARSER")
 
     return parsed_data(col_orders['projection'], data_values, includes)
 
