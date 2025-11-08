@@ -1,5 +1,6 @@
 import shutil
 import os
+import subprocess
 
 def print_dict(my_dict):
     for k,v in my_dict.items():
@@ -78,3 +79,47 @@ def dev_files_check():
         if os.path.isfile(src_file):
             dest_file = os.path.join(dest_dir, filename)
             shutil.copy2(src_file, dest_file)
+
+#takes in a SN for a hard drive outside of the drive holding the Linux FS. If it is in the system it makes sure it is mounted and returns the mount point
+def mount_hdd(sn):
+
+    mount_point = "/mnt/Main_Drive"
+    if os.name != "posix":
+        print("This only works for Linux systems")
+        return False
+    
+    #find device name for the drive with given SN in the system
+    dev_details = subprocess.run(f"ls -l /dev/disk/by-id | grep {sn}", shell=True, capture_output=True, check=True, text=True).stdout
+    
+    #Since SN should just find one drive, if more than one are found, then don't know how to handle that so do nothing
+    if len(dev_details.splitlines()) > 1:
+        print("Too many results came up, need to be more specific with SN or which partition to target")
+        return False
+    
+    #Cant find drive with that SN
+    elif len(dev_details.splitlines()) == 0:
+        print("Could not find drive with provided SN")
+        return False
+    
+    dev_name = dev_details[dev_details.rfind('/')+1:].strip()
+
+    #Checking if the drive is already mounted or not
+    blk_info = subprocess.run(f"lsblk | grep {dev_name}", shell=True, capture_output=True, check=True, text=True).stdout
+    dir_name = blk_info.find("/")
+    if dir_name > -1:
+        print(f"Already mounted at {blk_info[dir_name:]}")
+        return blk_info[dir_name:]
+    
+    print(f"Not mounted yet, mounting {dev_name} to {mount_point}")
+    
+    subprocess.run(f"sudo mkdir -p {mount_point}", shell=True, capture_output=True, check=True, text=True)
+    cmd = f"sudo mount /dev/{dev_name} {mount_point}"
+    try:
+        subprocess.run(cmd, shell=True, capture_output=True, check=True, text=True)
+
+    except subprocess.CalledProcessError as e:
+        print(f"MOUNT FAILED\n\nstdout:{e.stdout}\n\nstderr:{e.stderr}\n\ncmd:{cmd}\n\nerror:{e}")
+
+        return False
+    print(f"Mounting {dev_name} to {mount_point} SUCCEEDED")
+    return mount_point
