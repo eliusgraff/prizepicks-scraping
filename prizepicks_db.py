@@ -664,14 +664,14 @@ class prizepicks_db:
     #This is the function which will be called periodically to retrieve stats for the size of the db to be logged over time
     def get_stats(self):
         
-        size_query = """
+        size_query = f"""
         SELECT 
             TABLE_NAME AS `Table`,
             ROUND(((DATA_LENGTH + INDEX_LENGTH) / 1024 / 1024), 2) AS `Size (MB)`
         FROM 
             information_schema.TABLES
         WHERE 
-            TABLE_SCHEMA = 'prizepicks'
+            TABLE_SCHEMA = 'prizepicks_prod'
         ORDER BY 
             (DATA_LENGTH + INDEX_LENGTH) DESC;
         """
