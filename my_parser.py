@@ -150,6 +150,18 @@ def parse_included_data(included_data, col_orders):
         for col in col_orders[tag['type']]:
             my_tag[col] = tag['attributes'].get(col)
 
+        '''
+        Tech debt!
+
+        There is a case where the abbreviation is way longer than expected, in fact it seems to be a whole URL. These must be screened out here since they
+        cause errors when inputting into mysql. So far I only see this in the 'team' tag but there is nothing stopping this from being elsewhere. This is
+        a patch but a more elegant way around this should be added later
+        '''
+        abv = my_tag.get('abbreviation')
+        if abv is not None and len(abv) > 32:
+            LOG.warning(f"011: abv={abv}")
+            continue
+
         #new_player and game tags have some data which exists outside of the attributes tags, so these code blocks get that data and pull it into the dict
         if tag['type'] == "new_player":
             try:
