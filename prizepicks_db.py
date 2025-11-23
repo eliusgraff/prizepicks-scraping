@@ -63,23 +63,47 @@ class prizepicks_db:
     _external_data_names = dict()
     _log = None
     _db_name = None
+    _archive_path = None
+    _log_path = None
+    _config = None
 
     def __init__(self):
+
+        self._config = helper.get_secret("mysql")
         self._create_log()
+        self._set_archive_path()   
         self.compare_sql_schema()
         self._sql_conn = self._create_db_connection()
         self._sql_cursor = self._sql_conn.cursor()
-        self._set_external_data_names()
+        self._set_external_data_names()        
+     
+    #Function to set _config['archive'] and make sure that the path it points to is legit
+    def _set_archive_path(self):
+        #if archive path is given, make sure it exists
+        if self._config.get('archive') is not None:
+            #create and store archive path as path object
+            self._config['archive'] = os.path.abspath(self._config['archive'])
+            self._log.info(f"0: {self._config['archive']}")
+        else:
+            #if no archive path given, use the logs directory to store archives
+            self._config['archive'] = self._log_path
+            self._log.info(f"00: {self._config['archive']}")
+
+        #check to make sure the final path for the archive exists, if not, then throw exception
+        if os.path.exists(self._config['archive']) is False:
+            self._log.critical(f"1: {self._config['archive']}")
+            raise debug_exc( FileNotFoundError, "1", {"arch_path":self._config['archive']}, "PPDB")
+
 
     #Create a log for this class
     def _create_log(self):
         
         #create path for log files to go
-        log_path = os.path.join(os.path.dirname(__file__),"logs")
-        file_handler_path = os.path.join(log_path,".log")
+        self._log_path = os.path.join(os.path.dirname(__file__),"logs")
+        file_handler_path = os.path.join(self._log_path,".log")
 
-        if not os.path.isdir(log_path): 
-            os.mkdir(log_path)
+        if not os.path.isdir(self._log_path): 
+            os.mkdir(self._log_path)
 
         #Set up stats logger
         stats_logname = f"{__name__}_stats"
@@ -124,7 +148,7 @@ class prizepicks_db:
 
         #If no db name is passed in, then they are all loaded in from secrets file
         if db_name is None:
-            creds = helper.get_secret("mysql")
+            creds = self._config
             db_name = creds['db_name']
             host_name = creds['hn']
             user_name = creds['un']
@@ -678,17 +702,18 @@ class prizepicks_db:
         result = self._sql_cursor.fetchall()
         return result
 
+    #Function to compare the expected schema file in the repository with what the schema is of the actual database that is being used
     def compare_sql_schema(self):
     
-        my_creds = helper.get_secret("mysql")
+        my_creds = self._config
         dir_path = os.path.dirname(os.path.abspath(__file__))
-        fn = os.path.join(dir_path, my_creds['schema_file'])
-        sudo = my_creds.get("sudo")
+        fn = os.path.join(dir_path, self._config['schema_file'])
+        sudo = self._config.get("sudo")
 
         if sudo is not None:
-            schema_diff_cmd = f"echo '{sudo}' | sudo -S mysqldump -u {my_creds['un']} --password={my_creds['pw']} --no-data {my_creds['db_name']} | diff - {fn}"
+            schema_diff_cmd = f"echo '{sudo}' | sudo -S mysqldump -u {self._config['un']} --password={self._config['pw']} --no-data {self._config['db_name']} | diff - {fn}"
         else:
-            schema_diff_cmd = f"sudo mysqldump -u {my_creds['un']} --password={my_creds['pw']} --no-data {my_creds['db_name']} | diff - {fn}"
+            schema_diff_cmd = f"sudo mysqldump -u {self._config['un']} --password={self._config['pw']} --no-data {self._config['db_name']} | diff - {fn}"
         
         try:
             result = subprocess.run(schema_diff_cmd, shell=True, capture_output=True, text=True)
@@ -773,5 +798,39 @@ class prizepicks_db:
                 expected = []
                 line_nums = row
         
-        self._db_name = my_creds['db_name']
+        self._db_name = self._config['db_name']
         return True
+
+    def DEV_move_to_archive(self):
+
+        #In general, we want make the transfers of data as large as possible so that we get big sequential writes as we go. 
+        #This should not ever have to be deleted/overwritten once it is archived
+
+        #X should be not just how many hours after the start of a game we move all that data to the archive but also how often we check for this condition
+
+        #Get list of games that are > X hours after start time
+            #Since game lengths vary and can be delayed, I think that 6-12 hrs is safe, but maybe need to think about it a bit more
+        
+        #Get list of projections that are covered by those games
+
+        #Transer all the projection data along with all the rows for timeseries and changes for those projections to archive
+
+        #Move all the scrape datas to HDD as well? See if this needs to ever go on the SSD or can go straight to the HDD since this should never really change
+        pass
+
+    @log_perf
+    def DEV_ceate_sql_backup(self):
+        #Stores backup of mysql database, zips it up and stores either in log folder or an archive location if that is provided by the secrets file
+
+        '''
+        Need to find a way to do this concurrently so that as the db gets bigger and bigger this does not hold everything up for a long time
+        '''
+
+        #going to put the full logical dump in the logs folder so that it is fast, then will zip it up and send to the archive, which may be on lower media
+        sqldump_path = os.path.join(self._log_path, "mysql_dump.sql")
+        zip_path = os.path.join(self._archive_path, f"mysql_dump_{datetime.date.strftime("%Y-%m-%d")}.zip")
+
+        #linux commands to dump and zip the file
+        dump_cmd =      f"mysqldump -u {self._config['un']} --password={self._config['pw']} prizepicks_prod > {sqldump_path}"
+        zip_cmd =       f"zip {zip_path} {sqldump_path}"
+        cleanup_cmd =   f"rm {sqldump_path}"

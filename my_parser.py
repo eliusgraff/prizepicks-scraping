@@ -143,12 +143,23 @@ def parse_included_data(included_data, col_orders):
             continue
         
         #All of the included tags seem to follow the same/similar format, so by default they will
-        #just have the id taken and then look through the 'attributes' for the data that can be added
-        #sql DB
+        #just have the id taken and then look through the 'attributes' for the data that will be added to the sql DB
         my_tag = dict()
 
         for col in col_orders[tag['type']]:
             my_tag[col] = tag['attributes'].get(col)
+
+        '''
+        Tech debt!
+
+        There is a case where the abbreviation is way longer than expected, in fact it seems to be a whole URL. These must be screened out here since they
+        cause errors when inputting into mysql. So far I only see this in the 'team' tag but there is nothing stopping this from being elsewhere. This is
+        a patch but a more elegant way around this should be added later
+        '''
+        abv = my_tag.get('abbreviation')
+        if abv is not None and len(abv) > 32:
+            LOG.warning(f"011: abv={abv}")
+            continue
 
         #new_player and game tags have some data which exists outside of the attributes tags, so these code blocks get that data and pull it into the dict
         if tag['type'] == "new_player":
@@ -179,6 +190,7 @@ def parse_included_data(included_data, col_orders):
                 LOG.debug(f"05: typ=game - ntfnd=away - tgid={tag['id']}")
                 my_tag['away'] = None
 
+        #add the parsed tag to the list of all the other parsed tags
         my_tag['id'] = tag['id']
         parsed_data[tag['type']].append(my_tag)
 
