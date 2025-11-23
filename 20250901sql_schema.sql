@@ -352,7 +352,7 @@ DROP TABLE IF EXISTS `team`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `team` (
   `id` int NOT NULL,
-  `abbreviation` varchar(32) DEFAULT NULL,
+  `abbreviation` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL,
   `name` varchar(45) DEFAULT NULL,
   `market` varchar(64) DEFAULT NULL,
   PRIMARY KEY (`id`)
