@@ -1,6 +1,7 @@
 import shutil
 import os
 import subprocess
+from datetime import datetime as dt
 
 def print_dict(my_dict):
     for k,v in my_dict.items():
@@ -124,3 +125,8 @@ def mount_hdd(sn):
     print(f"Mounting {dev_name} to {mount_point} SUCCEEDED")
     return mount_point
 
+#Function just to dump mysql schema for storage as things change
+def dump_mysql_schema():
+    config = get_secret("mysql")
+    schema_dump_cmd = f"echo '{config['sudo']}' | sudo -S mysqldump -u {config['un']} --password={config['pw']} --no-data {config['db_name']} > '{dt.now().strftime("%Y%m%d")}sql_schema.sql'"
+    subprocess.run(schema_dump_cmd, shell=True)

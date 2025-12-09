@@ -11,6 +11,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import json
 from parsed_data import debug_exc
+from threading import Thread, enumerate
 
 class prizepicks_scheduler:
     
@@ -28,7 +29,8 @@ class prizepicks_scheduler:
         "Soccer",
         "NBA",
         "sts",
-        "dmp_sch"
+        "dmp_sch",
+        "bu"
     ]
 
     loop_wakeup_time = 15 #in seconds, how often the loop should wake up to check for new requests
@@ -37,6 +39,7 @@ class prizepicks_scheduler:
     max_req_rate = 60 # one min in seconds
     stats_rate = 3600 # one hour in seconds - will update db stats every hour
     dump_rate = 600 # 10 min in seconds
+    backup_rate = 86400 # one day in seconds
 
     stats_log = None # logger object for db stats logging
     sched_log = None # logger object for scheduler logging
@@ -49,12 +52,15 @@ class prizepicks_scheduler:
     SNAP = 3 # number of allowable consecutive errors before a snapshot is taken of the api response
     ABORT = 5 # number of allowable consecutive errors before the scheduler will kill itself and stop making requests
 
+    _bu_thread = Thread() # Thread object which will be managing the occasional backups in the background. I will only allow one singe backup thread at a time, so this will help enforce that
+
     def __init__(self):
         #Constructor for the scheduler class. 
         print("Setting up Scheduler class...")
         #Set up loggers
         self._create_loggers()
         self.trace_log.critical("INIT")
+        
         #Load in queue data from a file if it exists, otherwise create a default queue.
         if not os.path.isfile(self.scheduler_filename):
             print("Cant load schedule file, setting default")
@@ -73,8 +79,7 @@ class prizepicks_scheduler:
                     q_msg += f"{sch.astimezone().isoformat()}:{cmd}:{self.schedule_rates[cmd]}\t"
                 self.err_log.debug(f"\t{q_msg[:-1]}")
         
-        for each in self.cmd_q:
-            self.sched_log.debug(f"\t{each}  {self.schedule_rates[each[1]]}")
+        self._log_q_status()
 
     def __del__(self):
         #destructor for the scheduler class. This will save the existing queue data to a file for recovery next time the class is instantiated.
@@ -147,6 +152,7 @@ class prizepicks_scheduler:
 
     #function simply to check if all the rates are valid. If not, returns false. otherwise returns true.
     def _assert_rates(self):
+        
         for req_type, rate in self.schedule_rates.items():
             
             #Make sure that the requests are all being made at an acceptable rate
@@ -213,6 +219,7 @@ class prizepicks_scheduler:
         #If there are any items missing, add them to the queue with default rate
         if len(remaining_items) > 0:
             self.err_log.warning(f"7: {', '.join(cmd for cmd in remaining_items)[:-1]}")
+        
         for each in remaining_items:
 
             self.cmd_q.append((datetime.now(timezone.utc), each))
@@ -221,6 +228,8 @@ class prizepicks_scheduler:
                 self.schedule_rates[each] = self.stats_rate
             elif each == 'dmp_sch':
                 self.schedule_rates[each] = self.dump_rate
+            elif each == 'bu':
+                self.schedule_rates[each] = self.backup_rate
             else:
                 self.schedule_rates[each] = self.default_req_rate
 
@@ -235,6 +244,7 @@ class prizepicks_scheduler:
             self.schedule_rates[league] = self.default_req_rate
         self.schedule_rates['sts'] = self.stats_rate
         self.schedule_rates['dmp_sch'] = self.dump_rate
+        self.schedule_rates['bu'] = self.backup_rate
 
     def stop_scheduler(self):
         #Function to stop the scheduler loop. This will set the stop flag to true and then wait for the loop to finish next time it is able. Function
@@ -284,6 +294,7 @@ class prizepicks_scheduler:
         #If runtime is 0, then just run the loop forever until program exits or user stops it. This does not need a loop to check itself since this
         #is just run in a single thread
         else:
+
             self.trace_log.info("0000")
             try:
                 self._schedule_loop()
@@ -460,7 +471,8 @@ class prizepicks_scheduler:
 
         #Make sure there is data to check against, if not then no need to adjust frequencies. Also if the commands is just stats update, then that is 
         #done at constant interval so nothing to update
-        if data is not None and data != 'sts':
+
+        if data is not None and data not in ['sts','bu','dmp_sch']:
             #today the function only needs the game data, so just send what the fucntion needs
             ec = self._update_req_freq(cmd_type, data.included_tag_values.get('game'))
             
@@ -526,6 +538,10 @@ class prizepicks_scheduler:
                 #Get stats on db size
                 if cmd_type == 'sts':
                     self._get_db_stats()
+
+                #Dump mysql backup
+                elif cmd_type == 'bu':
+                    self._create_mysql_backup()
                 
                 #if not dump scheduler command, then need to scrape prizepicks for data
                 elif cmd_type != 'dmp_sch':
@@ -542,7 +558,7 @@ class prizepicks_scheduler:
                         self._dbe_handler(dbe, cmd_type, type_errs, consec_errs)
                         continue
 
-                    #Wrap exception in dbe class and raise it
+                    #If raises exception not in dbe_exc then wrap it in that exception and raise it
                     except Exception as e:
                         raise debug_exc(e, "2", {"cmd":nxt_cmd}, "SCHEDULER")                 
                 
@@ -694,6 +710,20 @@ class prizepicks_scheduler:
         self.trace_log.debug(f"0: fn={fn}")
         return fn
     
+    #Function Executed when mysql backup is time to be created
+    def _create_mysql_backup(self):
+        #crates a deamon thread and calls the prizepicks_db create_sql_backup function. Since this function will take a long time, we don't wait
+        # for it to finish, the daemon thread will run in paralell until it is completed since no need to block all other execution of the main
+        # thread for this.
+
+        #Check to make sure there is not already a backup thread alive, if there is, then don't start a new one and log an error
+        if self._bu_thread.is_alive():
+            self.err_log.warning("01: CANNOT CREATE EXTRA BU THREAD")
+            return 1
+        
+        self._bu_thread = Thread(target = self._db_obj.create_sql_backup, args=(True,), daemon=True)
+        self._bu_thread.start()
+    
     #class to hold all the relevant queue data from scheduler class when it is destructed. this way the data persists even if the class is deleted
     class _queue_data:
         queue = list()
@@ -703,7 +733,29 @@ class prizepicks_scheduler:
             self.queue = caller_queue
             self.rates = caller_rates
 
+
+def validate_backup():
+
+    s = prizepicks_scheduler()
+    for _ in range(10):
+        s._create_mysql_backup()
+        print("dump requested...")
+        time.sleep(5)
+    print(enumerate())
+    
+def reset_q():
+    s = prizepicks_scheduler()
+    s._create_default_queue()
+    del s
+
+
 if __name__ == "__main__":
+
+    #print("In main, calling backup")
+    #validate_backup()
+    #exit("Exiting after validating backup")
+    #reset_q()
+    #exit("Done!")
 
     user_input = input("Booting up prizepicks scraper, 'y' will begin the program, anything else will exit\n")
     if user_input.upper() != 'Y':

@@ -82,11 +82,11 @@ class prizepicks_db:
         #if archive path is given, make sure it exists
         if self._config.get('archive') is not None:
             #create and store archive path as path object
-            self._config['archive'] = os.path.abspath(self._config['archive'])
+            self._archive_path = os.path.abspath(self._config['archive'])
             self._log.info(f"0: {self._config['archive']}")
         else:
             #if no archive path given, use the logs directory to store archives
-            self._config['archive'] = self._log_path
+            self._archive_path = self._log_path
             self._log.info(f"00: {self._config['archive']}")
 
         #check to make sure the final path for the archive exists, if not, then throw exception
@@ -818,19 +818,23 @@ class prizepicks_db:
         #Move all the scrape datas to HDD as well? See if this needs to ever go on the SSD or can go straight to the HDD since this should never really change
         pass
 
+    #Creates a backup of the full mysql db with mysqldump and zips it up for backup purposes
     @log_perf
-    def DEV_ceate_sql_backup(self):
+    def create_sql_backup(self, subp = False):
         #Stores backup of mysql database, zips it up and stores either in log folder or an archive location if that is provided by the secrets file
 
-        '''
-        Need to find a way to do this concurrently so that as the db gets bigger and bigger this does not hold everything up for a long time
-        '''
-
         #going to put the full logical dump in the logs folder so that it is fast, then will zip it up and send to the archive, which may be on lower media
-        sqldump_path = os.path.join(self._log_path, "mysql_dump.sql")
-        zip_path = os.path.join(self._archive_path, f"mysql_dump_{datetime.date.strftime("%Y-%m-%d")}.zip")
+        zip_path = os.path.join(self._archive_path, f"{self._db_name}_dump_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.zip")
 
-        #linux commands to dump and zip the file
-        dump_cmd =      f"mysqldump -u {self._config['un']} --password={self._config['pw']} prizepicks_prod > {sqldump_path}"
-        zip_cmd =       f"zip {zip_path} {sqldump_path}"
-        cleanup_cmd =   f"rm {sqldump_path}"
+        #linux commands to dump and zip compress the backup with gzip
+        dump_cmd = f"mysqldump -u {self._config['un']} --password={self._config['pw']} {self._db_name} | gzip -9 > {zip_path}"
+        
+        try:
+            #Execute command above
+            subprocess.run(dump_cmd, shell=True, text=True, stdout = subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+        except subprocess.CalledProcessError as e:
+            # Handle errors if the curl command returns a non-zero exit code
+            print(f"command failed with error code {e.returncode}")
+            print(f"Stderr: {e.stderr}")
+            raise debug_exc (subprocess.CalledProcessError, "1", {"sh_cmd":dump_cmd,"ercode":e.returncode,"ermsg":e.stderr}, "PPDB")
