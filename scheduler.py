@@ -714,19 +714,8 @@ class prizepicks_scheduler:
             self.queue = caller_queue
             self.rates = caller_rates
 
-    
-def reset_q():
-    s = prizepicks_scheduler()
-    del s
-
-
+#Main function which creates scheduler object and runs it
 if __name__ == "__main__":
-
-    #print("In main, calling backup")
-    #validate_backup()
-    #exit("Exiting after validating backup")
-    #reset_q()
-    #exit("Done!")
 
     user_input = input("Booting up prizepicks scraper, 'y' will begin the program, anything else will exit\n")
     if user_input.upper() != 'Y':
