@@ -15,6 +15,15 @@
 4) Copy the latest sql schema from the repo and pase it into the command line
     At time of writing the file is '20250901sql_schema.sql'
 
+    OPTIONAL HARDWARE MANAGEMENT: When you create all the tables above, some of them end with 'archive'. If you have some slower/larger storage HW then those tables should go on there since those will be the largest and are only written/read in relativley large chunks.
+    If you want everything in another location on a different piece of hardware, then just change the datadir of your mysql server. Since I want to keep the smaller tables on my SSD and the larger tables on my HDD then I just move specific table using the steps below:
+        *you will need admin access to perform this - permissions make this kind of tricky, I had to use GUI to complete all  this
+        a) You will need to find your mysql datadir by using 'SELECT @@datadir;'
+        b) Navigate to that datadir, in there you will be able to find all the .ibd files. 
+        c) You can configure where any one of the tables are stored by copying the '_archive.ibd' file to the location you would like to store it - perhaps a location that is stored on your other piece of storage hardware
+        d) Replace the existing .ibd file with a symbolic link to the copy you just made in in step c. The symbolic link MUST have the same name. So if the .ibd file you moved was called 'projection_archive.ibd' then the symbolic link in the datadir must also be called 'projection_archive.ibd'
+        NOTE: These same steps can be used any time as long as the mysql DB is stopped while the files are being changed.
+
 5) Validate that it all worked by checking that all the expected tables are in there and all the tables have the expected columns with the following commands:
     SHOW TABLES;
         This will spit out all the table names, check to make sure they are all there
@@ -30,6 +39,7 @@
         NOTE: username does not have to be root, I just use root because so I don't have to manage permissions.
         For mysql_hn, I use 'localhost' but your system may be different, so make sure that is configured for your system. I'm not a mysql expert so I just Google if I need help
         The mysql_db_name should match your DB's name. I have one for dev and one for prod, so just make sure this is looking for the database you are trying to access
+
 ---For creating an 'app' to run the program automatically at launch
 7) On my linux system in the /.config/autostart directory I'm created 'prizepicks-scraping.desktop' and included the below info:
 	[Desktop Entry]
@@ -40,4 +50,5 @@
 	Comment=Polls prizepicks and save data in sql database
 	Exec=/usr/bin/python3 {path to prodcution repo}/scheduler.py
 	Categories=Utilities
+
 Then I used the GNOME Tweaks app to auto-launch the 'Prizepicks Scraping' app I created every time the computer boots up. There may be other ways to do this, but this seems to work for my purposes.

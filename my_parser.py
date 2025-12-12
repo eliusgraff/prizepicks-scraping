@@ -1,10 +1,8 @@
-from parsed_data import parsed_data
+from utils import parsed_data, debug_exc
 from my_logs import log_perf
 import os
 import logging
 from logging.handlers import RotatingFileHandler
-from parsed_data import debug_exc
-
 
 ###Code which runs when this module is imported###
 log_path = os.path.join(os.path.dirname(__file__),"logs")
@@ -143,8 +141,7 @@ def parse_included_data(included_data, col_orders):
             continue
         
         #All of the included tags seem to follow the same/similar format, so by default they will
-        #just have the id taken and then look through the 'attributes' for the data that can be added
-        #sql DB
+        #just have the id taken and then look through the 'attributes' for the data that will be added to the sql DB
         my_tag = dict()
 
         for col in col_orders[tag['type']]:
@@ -191,6 +188,7 @@ def parse_included_data(included_data, col_orders):
                 LOG.debug(f"05: typ=game - ntfnd=away - tgid={tag['id']}")
                 my_tag['away'] = None
 
+        #add the parsed tag to the list of all the other parsed tags
         my_tag['id'] = tag['id']
         parsed_data[tag['type']].append(my_tag)
 

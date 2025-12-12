@@ -10,7 +10,24 @@ import bisect
 import logging
 from logging.handlers import RotatingFileHandler
 import json
-from parsed_data import debug_exc
+from utils import debug_exc
+from threading import Thread #enumerate - Need to import this as something else since enumerate is a funciton in the python standard library and this conflicts with that
+
+FOUR_WKS = 2419200
+ONE_WK = 604800
+FOUR_DAYS = 345600
+ONE_DAY = 86400
+SIX_HOURS = 21600
+THREE_HOURS = 10800
+ONE_HOUR = 3600
+THIRTY_MINS = 1800
+FIFTEEN_MINS = 900
+TEN_MINS = 600
+FIVE_MINS = 300
+TWO_MINS = 120
+ONE_MIN = 60
+FIFTEEN_SEC = 15
+FIVE_SEC = 5
 
 class prizepicks_scheduler:
     
@@ -26,17 +43,21 @@ class prizepicks_scheduler:
         "MLB",
         "WNBA",
         "Soccer",
-        "NBA",
-        "sts",
-        "dmp_sch"
+        "NBA"
     ]
 
-    loop_wakeup_time = 15 #in seconds, how often the loop should wake up to check for new requests
-    default_req_rate = 300 # five min in seconds
-    min_req_rate = 86400 # one day in seconds
-    max_req_rate = 60 # one min in seconds
-    stats_rate = 3600 # one hour in seconds - will update db stats every hour
-    dump_rate = 600 # 10 min in seconds
+    default_req_rate = FIVE_MINS
+    min_req_rate = ONE_DAY
+    max_req_rate = ONE_MIN
+
+    #Dictionary to keep track of all of the non-essential 'background' activities that need to happen and the rate at which they should be scheduled
+    background = {
+        "sts":ONE_HOUR,
+        "dmp_sch":TEN_MINS,
+        "bu":ONE_DAY 
+    }
+
+    loop_wakeup_time = FIFTEEN_SEC #how often the loop should wake up to check for new requests
 
     stats_log = None # logger object for db stats logging
     sched_log = None # logger object for scheduler logging
@@ -49,32 +70,16 @@ class prizepicks_scheduler:
     SNAP = 3 # number of allowable consecutive errors before a snapshot is taken of the api response
     ABORT = 5 # number of allowable consecutive errors before the scheduler will kill itself and stop making requests
 
+    _bu_thread = Thread() # Thread object which will be managing the occasional backups in the background. I will only allow one singe backup thread at a time, so this will help enforce that
+
     def __init__(self):
         #Constructor for the scheduler class. 
         print("Setting up Scheduler class...")
         #Set up loggers
         self._create_loggers()
         self.trace_log.critical("INIT")
-        #Load in queue data from a file if it exists, otherwise create a default queue.
-        if not os.path.isfile(self.scheduler_filename):
-            print("Cant load schedule file, setting default")
-            self.err_log.warning(f"1: {self.scheduler_filename}")
-            self._create_default_queue()
-        
-        else:
-            #Load data from file and validate that it is valid
-            resp = self._load_queue_data()
-            
-            #If the loaded q data is not valid, then log appropriate info for debug
-            if resp is not True:
-                self.err_log.warning(f"2_{resp}: {self.scheduler_filename}")
-                q_msg = "curq: "
-                for sch,cmd in self.cmd_q:
-                    q_msg += f"{sch.astimezone().isoformat()}:{cmd}:{self.schedule_rates[cmd]}\t"
-                self.err_log.debug(f"\t{q_msg[:-1]}")
-        
-        for each in self.cmd_q:
-            self.sched_log.debug(f"\t{each}  {self.schedule_rates[each[1]]}")
+        self.create_queue()     
+        self._log_q_status()
 
     def __del__(self):
         #destructor for the scheduler class. This will save the existing queue data to a file for recovery next time the class is instantiated.
@@ -128,6 +133,20 @@ class prizepicks_scheduler:
             q_status = self._queue_data(self.cmd_q, self.schedule_rates)
             pickle.dump(q_status, scheduler_file)
 
+    #function to make sure valid queue is in the scheduler before execution begins
+    def create_queue(self):
+        #Load in queue data from a file if it exists, otherwise create a default queue.
+        if not os.path.isfile(self.scheduler_filename):
+            print("Cant load schedule file, setting default")
+            self.err_log.warning(f"1: {self.scheduler_filename}")
+            self._create_default_queue()
+        
+        #Load data from file and make sure it is valid
+        else:
+            self._load_queue_data()
+            self._validate_queue()
+
+    #load queue object from pickle file and validate it
     def _load_queue_data(self):
         #read queue data from file and set the rates according to that 
         with open (self.scheduler_filename, 'rb') as scheduler_file:
@@ -137,95 +156,101 @@ class prizepicks_scheduler:
             self.schedule_rates = saved_q_data.rates
             self.cmd_q = saved_q_data.queue
 
-        #validate that the saved queue and rates are valid. If not, log the bad q and then reset everything to default
-        if not self._assert_queue() or not self._assert_rates():
-            '''---Add in option to fix the queue---'''
-            self._create_default_queue()
-            return 1
-        
-        return True
-
-    #function simply to check if all the rates are valid. If not, returns false. otherwise returns true.
-    def _assert_rates(self):
-        for req_type, rate in self.schedule_rates.items():
-            
-            #Make sure that the requests are all being made at an acceptable rate
-            if req_type in self.known_leagues:
-                if rate < self.max_req_rate or rate > self.min_req_rate:
-                    self.err_log.debug(f"1: t={req_type} r={rate}")
-                    return False
-            #If req_type is not in known leagues, then that is also a problem!
-            else:
-                self.err_log.debug(f"2: t={req_type} r={rate}")
-                return False
-        return True
-
-    def _assert_queue(self):
-        #Function which returns true if the queue is valid, false otherwise.
+    #Function to make sure items in the queue are valid
+    def _validate_queue(self):
 
         #Set up objects for tracking what is expected and what is still valid
-        queue_items = set(self.known_leagues)
+        queue_items = set(self.known_leagues).union(set(self.background))
         remaining_items = set(queue_items)
 
-        for each in self.cmd_q:
-
-            #check that each of the queue items has correct types
-            '''---Return code rather than false for everything---'''
+        #Go through cmd_q, if any items have invalid entries or are duplicates then turn them into None
+        for i, each in enumerate(self.cmd_q):
             
+            #Queue item {each} is not a tuple
             if not isinstance(each, tuple):
-                #Queue item {each} is not a tuple
-                self.err_log.warning(f"1: {each}")
-                return False #return 1
+                self.err_log.warning(f"01: {each}")
+                self.cmd_q[i] = None
+                continue
             
+            #Queue item must have length 2
             if len(each) != 2:
-                #Queue item must have length 2
-                self.err_log.warning(f"2: {each}")
-                return False #return 2
+                self.err_log.warning(f"02: {each}")
+                self.cmd_q[i] = None
+                continue
             
+            #Queue item must have a datetime as the first element
             if not isinstance(each[0], datetime):
-                #Queue item must have a datetime as the first element
-                '''---Could try to parse this as a string to go to datetime, that may be elegant way to handle errors here---'''
-                self.err_log.warning(f"3: {each}")
-                return False #return 3
+                self.err_log.warning(f"03: {each}")
+                self.cmd_q[i] = None
+                continue
             
-            #make sure that the request type is valid and not a duplicate
-            if each[1] not in queue_items:
-                #Queue item must have known command type at each[1]
-                self.err_log.warning(f"4: {each}")
-                return False #return 4
+            cmd_type = each[1]
+
+            #Queue item must have known command type
+            if cmd_type not in queue_items:
+                self.err_log.warning(f"04: {each}")
+                self.cmd_q[i] = None
+                continue
+
+            #Queue item must not be a duplicate
+            if cmd_type not in remaining_items:
+                self.err_log.warning(f"05: {each}")
+                self.cmd_q[i] = None
+                continue
             
-            if each[1] not in remaining_items:
-                #Queue item must not be a duplicate
-                self.err_log.warning(f"5: {each}")
-                return False #return 5
-            
-            #If time to execution is further away than the minimum request rate, then that is not valid
+            #Check how far away until the next time the command is to be executed
             time_to_exec = each[0] - datetime.now(timezone.utc)
             sec_to_exec = time_to_exec.total_seconds()
-            if each[1] in self.known_leagues and sec_to_exec > self.min_req_rate :
-                #Next scheduled time for this command must be within minimum polling constraints
-                '''---Could I handle this gracefully and just add it back in at the minimum sample rate?---'''
-                self.err_log.warning(f"6: {each}")
-                return False #return 6
+
+            #make sure the scheduled time and request rates are both valid, if not turn the item into None
+            if cmd_type in self.known_leagues:
+
+                #if schedule rate is not valid then set to None
+                if self.schedule_rates[cmd_type] > self.min_req_rate or self.schedule_rates[cmd_type] < self.max_req_rate:
+                    self.err_log.warning(f"07: {each}")
+                    self.cmd_q[i] = None
+                    continue
+
+                #Next scheduled time for this command is not valid, then reschedule based on polling rate
+                if sec_to_exec > self.min_req_rate:
+                    self.err_log.warning(f"06: {each}")
+                    self.cmd_q[i][0] = datetime.now(timezone.utc) + timedelta(seconds=self.schedule_rates[cmd_type])
+
+            elif cmd_type in self.background:
+
+                #Since this will only ever poll at constant rate, just set it, who cares what was in the file                
+                self.schedule_rates[cmd_type] = self.background[cmd_type]
+
+                #If next scheduled time is invalid, then just change it to be valid!
+                if sec_to_exec > self.background[cmd_type]:
+                    self.err_log.warning(f"08: {each}")
+                    self.cmd_q[i][0] = datetime.now(timezone.utc) + timedelta(seconds=self.schedule_rates[cmd_type])
             
-            remaining_items.remove(each[1])
+            #If we get here, then we know it was legit and remove from remaining_items
+            remaining_items.remove(cmd_type)
+
+        #Clear out any None items from the list
+        for i in reversed(range(len(self.cmd_q))):
+            if self.cmd_q[i] is None: del self.cmd_q[i]
         
-        #If there are any items missing, add them to the queue with default rate
+        #log items that need to be added to the q
         if len(remaining_items) > 0:
             self.err_log.warning(f"7: {', '.join(cmd for cmd in remaining_items)[:-1]}")
-        for each in remaining_items:
+        
+        #If there are any items missing, add them to the queue with default rates
+        for cmd in remaining_items:
 
-            self.cmd_q.append((datetime.now(timezone.utc), each))
-
-            if each == 'sts':
-                self.schedule_rates[each] = self.stats_rate
-            elif each == 'dmp_sch':
-                self.schedule_rates[each] = self.dump_rate
+            #If command is added schedule to execute right away
+            self.cmd_q.append((datetime.now(timezone.utc), cmd))
+            
+            #Add correct schedule rate for the new thing
+            if cmd in self.known_leagues:
+                self.schedule_rates[cmd] = self.default_req_rate
             else:
-                self.schedule_rates[each] = self.default_req_rate
+                self.schedule_rates[cmd] = self.background[cmd]
 
         return True
-
+    
     def _create_default_queue(self):
         #Create queue using all of the default rates for the known leagues
         
@@ -233,8 +258,9 @@ class prizepicks_scheduler:
         for league in self.known_leagues:
             self.cmd_q.append((datetime.now(timezone.utc), league))
             self.schedule_rates[league] = self.default_req_rate
-        self.schedule_rates['sts'] = self.stats_rate
-        self.schedule_rates['dmp_sch'] = self.dump_rate
+        for cmd, rate in self.background:
+            self.schedule_rates[cmd] = rate
+
 
     def stop_scheduler(self):
         #Function to stop the scheduler loop. This will set the stop flag to true and then wait for the loop to finish next time it is able. Function
@@ -284,6 +310,7 @@ class prizepicks_scheduler:
         #If runtime is 0, then just run the loop forever until program exits or user stops it. This does not need a loop to check itself since this
         #is just run in a single thread
         else:
+
             self.trace_log.info("0000")
             try:
                 self._schedule_loop()
@@ -345,29 +372,7 @@ class prizepicks_scheduler:
         
         return wp_data    
 
-    def _q_sanity_check(self, cmd_type):
-        #Function which checks to make sure there is exactly 1 instance of cmd_type in the q. If 0 or more than 1 instance in the q.
-        #If 0 instances, returns 0
-        #If >1 instance, return 2
-        #Otherwise, return 1
-
-        found_cmd = False
-        for cmd in self.cmd_q:
-            
-            #First instance found
-            if cmd[1] == cmd_type and found_cmd is False:
-                found_cmd = True
-            
-            #second instance found
-            elif cmd[1] == cmd_type and found_cmd is True:
-                return 2
-        
-        #Got to end with nothing found
-        if found_cmd is False:
-            return 0
-        
-        return 1
-
+    #Update request frequency for a certain command based on when the next game for that league is
     def _update_req_freq(self, cmd_type, game_data):
         #Takes a look at when the next game for a specific league is and schedules when the next time it should be scheduled is
         #The assumption made in the design of this function is that as a player gets closer to gametime, their spread is more likely to change
@@ -460,7 +465,8 @@ class prizepicks_scheduler:
 
         #Make sure there is data to check against, if not then no need to adjust frequencies. Also if the commands is just stats update, then that is 
         #done at constant interval so nothing to update
-        if data is not None and data != 'sts':
+
+        if data is not None and data not in self.background:
             #today the function only needs the game data, so just send what the fucntion needs
             ec = self._update_req_freq(cmd_type, data.included_tag_values.get('game'))
             
@@ -482,8 +488,8 @@ class prizepicks_scheduler:
 
         return True
     
+    #Function to log current status of the queue and how long the loop is going to sleep for
     def _log_q_status(self, sleep_time = None):
-        #Function to log current status of the queue and how long the loop is going to sleep for
         q_msg = "curq: "
         for sch,cmd in self.cmd_q:
             q_msg += f"{cmd}:{sch.astimezone().isoformat()}:{self.schedule_rates[cmd]}\t"
@@ -497,12 +503,16 @@ class prizepicks_scheduler:
         #this is the loop which will schedule the commands to be executed. This will run until the _stop_loop flag is set to true.        
 
         self._stop_loop = False
-        min_time_to_wait = 5 #in seconds to avoid spamming the API with requests and being detected
+        min_time_to_wait = FIVE_SEC #Only poll so often to avoid spamming the API with requests
+        
+        #objects to keep track of how many error pop up and for which actions
         consec_errs = 0
-        type_errs = {cmd: 0 for cmd in self.known_leagues}
+        type_errs = {cmd: 0 for cmd in self.known_leagues + list(self.background)}
 
+        #Starting scheduler loop
         self.trace_log.debug("0")
         while True:
+
             #Check if loop is stopped by parent thread
             if self._stop_loop:
                 self.trace_log.info("00")
@@ -525,6 +535,10 @@ class prizepicks_scheduler:
                 #Get stats on db size
                 if cmd_type == 'sts':
                     self._get_db_stats()
+
+                #Dump mysql backup
+                elif cmd_type == 'bu':
+                    self._create_mysql_backup()
                 
                 #if not dump scheduler command, then need to scrape prizepicks for data
                 elif cmd_type != 'dmp_sch':
@@ -541,7 +555,7 @@ class prizepicks_scheduler:
                         self._dbe_handler(dbe, cmd_type, type_errs, consec_errs)
                         continue
 
-                    #Wrap exception in dbe class and raise it
+                    #If raises exception not in dbe_exc then wrap it in that exception and raise it
                     except Exception as e:
                         raise debug_exc(e, "2", {"cmd":nxt_cmd}, "SCHEDULER")                 
                 
@@ -575,7 +589,8 @@ class prizepicks_scheduler:
         self._stop_loop = False
         return True
     
-    #Function to handle db-realted errors
+    #Function to handle and track db-realted errors
+    '''---Still much work to be done here, but most of the erros are already fixed elsewhere so not urgent to fic this---'''
     def _dbe_handler(self, dbe, cmd_type, type_errs, consec_errs):
         '''
         Eventually, if the problem is just related to the single cmd_type then we need to just evict it from the q or set it to lowest
@@ -636,12 +651,15 @@ class prizepicks_scheduler:
             raise RuntimeError(f"Too many failed commands in a row. Last command executed = {ct}")
         self.err_log.error(f"22: cmd={ct} - fn={fn}")
 
+    #Function to get the size of the tables in the db and log them
     def _get_db_stats(self):
-        #Function to get the size of the tables in the db and log them
+        #Function asked the db object what it's stats are, then logs them
         db_stats = self._db_obj.get_stats()
+
+        #Construct log message from the db stats retruned from the object
         mystr = "tbszs(mb): "
-        for name, size in db_stats:
-            mystr += f"{name}:{size}\t"
+        for name, size in db_stats: mystr += f"{name}:{size}\t"
+
         self.stats_log.info(mystr)
         return True
     
@@ -673,8 +691,9 @@ class prizepicks_scheduler:
         except KeyError:
             self.trace_log.warning(f"02: ntfnd={name}")
 
+    #Function to take a json object and send it to a text file - usually for debugging
     def _json_snap(self, prefix, data):
-        #Function to take a json object and send it to a text file for review why this may have given the program a hard time. Return fn to I can 
+        raise NotImplementedError
         #correlate the error to the dump
         fn = self._create_snap_fn(prefix)
         with open(fn,"w") as json_file:
@@ -683,6 +702,7 @@ class prizepicks_scheduler:
         return fn
 
     def _exc_snap(self, prefix, e, traceback):
+        raise NotImplementedError
         #Function to take in an exception object and send it to a text file for logging and review purposes
         fn = self._create_snap_fn(prefix)
         with open(fn,"w") as f:
@@ -693,6 +713,20 @@ class prizepicks_scheduler:
         self.trace_log.debug(f"0: fn={fn}")
         return fn
     
+    #Function Executed when mysql backup is time to be created
+    def _create_mysql_backup(self):
+        #crates a deamon thread and calls the prizepicks_db create_sql_backup function. Since this function will take a long time, we don't wait
+        # for it to finish, the daemon thread will run in paralell until it is completed since no need to block all other execution of the main
+        # thread for this.
+
+        #Check to make sure there is not already a backup thread alive, if there is, then don't start a new one and log an error
+        if self._bu_thread.is_alive():
+            self.err_log.warning("01: CANNOT CREATE EXTRA BU THREAD")
+            return 1
+        
+        self._bu_thread = Thread(target = self._db_obj.create_sql_backup, args=(True,), daemon=True)
+        self._bu_thread.start()
+    
     #class to hold all the relevant queue data from scheduler class when it is destructed. this way the data persists even if the class is deleted
     class _queue_data:
         queue = list()
@@ -702,6 +736,7 @@ class prizepicks_scheduler:
             self.queue = caller_queue
             self.rates = caller_rates
 
+#Main function which creates scheduler object and runs it
 if __name__ == "__main__":
 
     user_input = input("Booting up prizepicks scraper, 'y' will begin the program, anything else will exit\n")
