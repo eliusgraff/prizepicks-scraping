@@ -531,7 +531,7 @@ class prizepicks_scheduler:
 
                 cmd_type = nxt_cmd[1]
                 print(f"Executing cmd: {cmd_type}")
-             
+            
                 #Get stats on db size
                 if cmd_type == 'sts':
                     self._get_db_stats()

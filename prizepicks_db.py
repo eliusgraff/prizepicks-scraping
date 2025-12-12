@@ -45,10 +45,7 @@ class prizepicks_db:
         'game':[],
         'projection_type':[]
     }
-    ENDPOINT_ID = {
-        'projection':1,
-        'game':2
-    }
+
     _MY_TABLES = [
         'projection',
         'team',
@@ -129,10 +126,11 @@ class prizepicks_db:
             #Some names are modifies to avoid mySQL reserved words, so this undoes that modification
             data_names = self._remove_mysql_prefix(table_cols)
 
-            #timeseries data is stored in a special table for values expected to change often, so this 
-            #gets the names of those columns
-            ts_list = self.read_query(f"SELECT DISTINCT name FROM {table_name}_timeseries;")
-            ts_names = [each[0] for each in ts_list]
+            #Pull the expected timeseries names from the member valiables above
+            if table_name == 'projection':
+                ts_names = list(self.PROJECTION_TIME_SERIES)
+            else:
+                ts_names = self.INCLUDED_TIME_SERIES[table_name]
 
             #Add the names of both the target table and the timeseries tables to save
             self._external_data_names[table_name] = data_names + ts_names
@@ -286,7 +284,7 @@ class prizepicks_db:
             else:
                 #if timeseries data does not exist in the incoming row, then just skip it
                 pass
-        
+ 
         return timeseries_list
 
     #This fucntion goes through each of the items of two existing and incoming data rows and compares them. If any differences then
@@ -347,6 +345,7 @@ class prizepicks_db:
 
         #Call function to map the incoming data to the order that the db requires
         mapping, dts, translated_headers = self._create_col_ordering(headers, table)
+ 
         
         #Create dictionary where the key is the row id and the value is the row of existing data in the mysql db. This will be used to 
         #check for if any rows need to be updated
@@ -361,6 +360,7 @@ class prizepicks_db:
         #loop through each of the headers and determine which are timeseries so that they can be handled separatley from the items which are not 
         # expected to change
         ts_hdr_inds = dict()
+
         for ts in self.PROJECTION_TIME_SERIES:
             try:
                 ts_hdr_inds[ts] = headers.index(ts)
@@ -505,6 +505,8 @@ class prizepicks_db:
         #Some of the projection attributes are expected to change all the time. Rather than keep changing the whole projection record every time, these
         #values are tracked/stored in this timeseries table and the latest values are alwyas inserted in here. This does not check if that value has changed
         #at all, it just adds it no matter what
+
+
         if len(timeseries_list) > 0:
 
             #Create the SQL query to format and insert the data into the db
