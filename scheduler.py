@@ -10,8 +10,24 @@ import bisect
 import logging
 from logging.handlers import RotatingFileHandler
 import json
-from parsed_data import debug_exc
+from utils import debug_exc
 from threading import Thread #enumerate - Need to import this as something else since enumerate is a funciton in the python standard library and this conflicts with that
+
+FOUR_WKS = 2419200
+ONE_WK = 604800
+FOUR_DAYS = 345600
+ONE_DAY = 86400
+SIX_HOURS = 21600
+THREE_HOURS = 10800
+ONE_HOUR = 3600
+THIRTY_MINS = 1800
+FIFTEEN_MINS = 900
+TEN_MINS = 600
+FIVE_MINS = 300
+TWO_MINS = 120
+ONE_MIN = 60
+FIFTEEN_SEC = 15
+FIVE_SEC = 5
 
 class prizepicks_scheduler:
     
@@ -30,22 +46,18 @@ class prizepicks_scheduler:
         "NBA"
     ]
 
-    default_req_rate = 300 # five min in seconds
-    min_req_rate = 86400 # one day in seconds
-    max_req_rate = 60 # one min in seconds
+    default_req_rate = FIVE_MINS
+    min_req_rate = ONE_DAY
+    max_req_rate = ONE_MIN
 
     #Dictionary to keep track of all of the non-essential 'background' activities that need to happen and the rate at which they should be scheduled
     background = {
-        "sts":3600, # 5 min in seconds
-        "dmp_sch":600, # 10 min in seconds
-        "bu":86400 # One day in seconds
+        "sts":ONE_HOUR,
+        "dmp_sch":TEN_MINS,
+        "bu":ONE_DAY 
     }
 
-    stats_rate = 3600 # one hour in seconds - will update db stats every hour
-    dump_rate = 3600 # One hour in seconds
-    backup_rate = 86400 # one day in seconds
-
-    loop_wakeup_time = 15 #in seconds, how often the loop should wake up to check for new requests
+    loop_wakeup_time = FIFTEEN_SEC #how often the loop should wake up to check for new requests
 
     stats_log = None # logger object for db stats logging
     sched_log = None # logger object for scheduler logging
@@ -491,12 +503,16 @@ class prizepicks_scheduler:
         #this is the loop which will schedule the commands to be executed. This will run until the _stop_loop flag is set to true.        
 
         self._stop_loop = False
-        min_time_to_wait = 5 #in seconds to avoid spamming the API with requests and being detected
+        min_time_to_wait = FIVE_SEC #Only poll so often to avoid spamming the API with requests
+        
+        #objects to keep track of how many error pop up and for which actions
         consec_errs = 0
         type_errs = {cmd: 0 for cmd in self.known_leagues + list(self.background)}
 
+        #Starting scheduler loop
         self.trace_log.debug("0")
         while True:
+
             #Check if loop is stopped by parent thread
             if self._stop_loop:
                 self.trace_log.info("00")
@@ -573,7 +589,8 @@ class prizepicks_scheduler:
         self._stop_loop = False
         return True
     
-    #Function to handle db-realted errors
+    #Function to handle and track db-realted errors
+    '''---Still much work to be done here, but most of the erros are already fixed elsewhere so not urgent to fic this---'''
     def _dbe_handler(self, dbe, cmd_type, type_errs, consec_errs):
         '''
         Eventually, if the problem is just related to the single cmd_type then we need to just evict it from the q or set it to lowest
@@ -634,12 +651,15 @@ class prizepicks_scheduler:
             raise RuntimeError(f"Too many failed commands in a row. Last command executed = {ct}")
         self.err_log.error(f"22: cmd={ct} - fn={fn}")
 
+    #Function to get the size of the tables in the db and log them
     def _get_db_stats(self):
-        #Function to get the size of the tables in the db and log them
+        #Function asked the db object what it's stats are, then logs them
         db_stats = self._db_obj.get_stats()
+
+        #Construct log message from the db stats retruned from the object
         mystr = "tbszs(mb): "
-        for name, size in db_stats:
-            mystr += f"{name}:{size}\t"
+        for name, size in db_stats: mystr += f"{name}:{size}\t"
+
         self.stats_log.info(mystr)
         return True
     
@@ -671,8 +691,9 @@ class prizepicks_scheduler:
         except KeyError:
             self.trace_log.warning(f"02: ntfnd={name}")
 
+    #Function to take a json object and send it to a text file - usually for debugging
     def _json_snap(self, prefix, data):
-        #Function to take a json object and send it to a text file for review why this may have given the program a hard time. Return fn to I can 
+        raise NotImplementedError
         #correlate the error to the dump
         fn = self._create_snap_fn(prefix)
         with open(fn,"w") as json_file:
@@ -681,6 +702,7 @@ class prizepicks_scheduler:
         return fn
 
     def _exc_snap(self, prefix, e, traceback):
+        raise NotImplementedError
         #Function to take in an exception object and send it to a text file for logging and review purposes
         fn = self._create_snap_fn(prefix)
         with open(fn,"w") as f:

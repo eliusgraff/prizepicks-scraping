@@ -1,7 +1,7 @@
 import mysql.connector
-import helper
+import utils
 from datetime import datetime, timezone
-from parsed_data import parsed_data, debug_exc
+from utils import parsed_data, debug_exc
 from my_logs import log_perf
 import os
 import logging
@@ -69,7 +69,7 @@ class prizepicks_db:
 
     def __init__(self):
 
-        self._config = helper.get_secret("mysql")
+        self._config = utils.get_secret("mysql")
         self._create_log()
         self._set_archive_path()   
         self.compare_sql_schema()

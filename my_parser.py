@@ -1,10 +1,8 @@
-from parsed_data import parsed_data
+from utils import parsed_data, debug_exc
 from my_logs import log_perf
 import os
 import logging
 from logging.handlers import RotatingFileHandler
-from parsed_data import debug_exc
-
 
 ###Code which runs when this module is imported###
 log_path = os.path.join(os.path.dirname(__file__),"logs")

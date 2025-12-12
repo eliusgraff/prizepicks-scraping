@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from parsed_data import debug_exc
+from utils import debug_exc
 import subprocess
 import pycurl
 from io import BytesIO
