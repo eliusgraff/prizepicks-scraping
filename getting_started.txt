@@ -1,10 +1,18 @@
 ---GETTING STARTED---
 0) Download and set up mysql database. Keep track of the root username and password
+    If you are going to store some tables in an non-default location (like on another drive in system), then you will need to add the below into your mysql options file:
+        innodb_directories =/path/to/directory
+    *This article here was exactly what I spent many hours trying to figure out: https://moxio.com/blog/moving-individual-mysql-tables-on-disk/
+    **On Fedora Linux I had an issue using a different directory while SELinux was enabled, so if that is causing issues, then disable that...
+
 
 ---CREATING SQL DB WITH LATEST SCHEMA---
 1) Create mysql connection in terminal with root un and pw
     sudo mysql -u root -p
         cml will prompt you for root pw
+    *If you will be using different locations to store different tables, now is the time to add that since moving the tables after there is a bunch of data in them is harder.
+    An example of what the table creation functions should look like is as below:
+        CREATE TABLE `whatever_table_name` (/* column definitions here*/) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/path/to/directory';
 
 2) Create the database with your desired database name - in my case, it is 'prizepicks_prod'. For a development database perhaps 'prizepicks_dev' is more appropriate
     CREATE DATABASE prizepicks_prod;

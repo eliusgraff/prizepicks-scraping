@@ -1,6 +1,6 @@
 -- MySQL dump 10.13  Distrib 8.0.42, for Linux (x86_64)
 --
--- Host: localhost    Database: pp_dev
+-- Host: localhost    Database: pp_dev_archive
 -- ------------------------------------------------------
 -- Server version	8.0.42
 
@@ -30,7 +30,25 @@ CREATE TABLE `game` (
   `status` varchar(32) DEFAULT NULL,
   `start_time` datetime DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `game_archive`
+--
+
+DROP TABLE IF EXISTS `game_archive`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `game_archive` (
+  `id` int NOT NULL,
+  `external_game_id` varchar(64) DEFAULT NULL,
+  `away` varchar(64) DEFAULT NULL,
+  `home` varchar(64) DEFAULT NULL,
+  `status` varchar(32) DEFAULT NULL,
+  `start_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -45,7 +63,7 @@ CREATE TABLE `game_change_history` (
   `name` varchar(32) DEFAULT NULL,
   `val` varchar(64) DEFAULT NULL,
   `parsenum` int DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -60,7 +78,7 @@ CREATE TABLE `game_timeseries` (
   `name` varchar(32) DEFAULT NULL,
   `val` varchar(64) DEFAULT NULL,
   `parsenum` int DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -77,7 +95,7 @@ CREATE TABLE `league` (
   `name` varchar(16) DEFAULT NULL,
   `projections_count` int DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -93,7 +111,7 @@ CREATE TABLE `league_change_history` (
   `val` varchar(64) DEFAULT NULL,
   `parsenum` int DEFAULT NULL,
   PRIMARY KEY (`league_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -109,7 +127,7 @@ CREATE TABLE `league_timeseries` (
   `val` varchar(64) DEFAULT NULL,
   `parsenum` int DEFAULT NULL,
   PRIMARY KEY (`league_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -128,7 +146,7 @@ CREATE TABLE `new_player` (
   `league_id` int DEFAULT NULL,
   `team_id` varchar(8) DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -144,7 +162,7 @@ CREATE TABLE `new_player_change_history` (
   `val` varchar(64) DEFAULT NULL,
   `parsenum` int DEFAULT NULL,
   PRIMARY KEY (`new_player_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -160,7 +178,7 @@ CREATE TABLE `new_player_timeseries` (
   `val` varchar(64) DEFAULT NULL,
   `parsenum` int DEFAULT NULL,
   PRIMARY KEY (`new_player_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -201,6 +219,43 @@ CREATE TABLE `projection` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `projection_archive`
+--
+
+DROP TABLE IF EXISTS `projection_archive`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `projection_archive` (
+  `my_type` varchar(20) NOT NULL,
+  `id` varchar(16) NOT NULL,
+  `adjusted_odds` tinyint DEFAULT NULL,
+  `my_description` varchar(45) NOT NULL,
+  `discount_name` varchar(45) DEFAULT NULL,
+  `discount_percentage` float DEFAULT NULL,
+  `end_time` datetime DEFAULT NULL,
+  `flash_sale_line_score` varchar(45) DEFAULT NULL,
+  `game_id` varchar(45) DEFAULT NULL,
+  `is_promo` tinyint DEFAULT NULL,
+  `odds_type` varchar(45) DEFAULT NULL,
+  `projection_type` varchar(45) DEFAULT NULL,
+  `refundable` tinyint DEFAULT NULL,
+  `start_time` datetime DEFAULT NULL,
+  `stat_type` varchar(45) DEFAULT NULL,
+  `duration` varchar(90) DEFAULT NULL,
+  `league` varchar(90) DEFAULT NULL,
+  `new_player` varchar(90) DEFAULT NULL,
+  `projection_type_id` varchar(10) DEFAULT NULL,
+  `score` varchar(90) DEFAULT NULL,
+  `stat_type_id` varchar(10) DEFAULT NULL,
+  `game` varchar(16) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `league_index` (`league`),
+  KEY `player_index` (`new_player`),
+  KEY `stat_index` (`stat_type_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `projection_change_history`
 --
 
@@ -214,7 +269,7 @@ CREATE TABLE `projection_change_history` (
   `parsenum` int DEFAULT NULL,
   KEY `id_index` (`projection_id`),
   KEY `parse_index` (`parsenum`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -231,7 +286,7 @@ CREATE TABLE `projection_timeseries` (
   `parsenum` int DEFAULT NULL,
   KEY `id_index` (`projection_id`),
   KEY `parse_index` (`parsenum`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -245,7 +300,7 @@ CREATE TABLE `projection_type` (
   `id` int NOT NULL,
   `name` varchar(45) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -260,7 +315,7 @@ CREATE TABLE `projection_type_change_history` (
   `name` varchar(32) DEFAULT NULL,
   `val` varchar(64) DEFAULT NULL,
   `parsenum` int DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -275,7 +330,7 @@ CREATE TABLE `projection_type_timeseries` (
   `name` varchar(45) DEFAULT NULL,
   `val` varchar(45) DEFAULT NULL,
   `parsenum` int DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -294,7 +349,7 @@ CREATE TABLE `scrape_data` (
   PRIMARY KEY (`id`),
   KEY `league_index` (`league_num`),
   KEY `time_index` (`store_time`)
-) ENGINE=InnoDB AUTO_INCREMENT=10516 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3338 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -308,7 +363,7 @@ CREATE TABLE `stat_type` (
   `id` int NOT NULL,
   `name` varchar(45) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -324,7 +379,7 @@ CREATE TABLE `stat_type_change_history` (
   `val` varchar(64) DEFAULT NULL,
   `parsenum` int DEFAULT NULL,
   PRIMARY KEY (`stat_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -340,7 +395,7 @@ CREATE TABLE `stat_type_timeseries` (
   `val` varchar(64) DEFAULT NULL,
   `parsenum` int DEFAULT NULL,
   PRIMARY KEY (`stat_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -356,7 +411,7 @@ CREATE TABLE `team` (
   `name` varchar(45) DEFAULT NULL,
   `market` varchar(64) DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -371,22 +426,7 @@ CREATE TABLE `team_change_history` (
   `name` varchar(32) DEFAULT NULL,
   `val` varchar(64) DEFAULT NULL,
   `parsenum` int DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Table structure for table `team_timeseries`
---
-
-DROP TABLE IF EXISTS `team_timeseries`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `team_timeseries` (
-  `team_id` int NOT NULL,
-  `name` varchar(45) DEFAULT NULL,
-  `val` varchar(45) DEFAULT NULL,
-  `parsenum` int DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/Main_Drive/mysql_archive/';
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
@@ -398,4 +438,4 @@ CREATE TABLE `team_timeseries` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-11-22 20:31:15
+-- Dump completed on 2025-12-16 21:51:12

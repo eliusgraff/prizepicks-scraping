@@ -4,6 +4,7 @@ import subprocess
 from datetime import datetime as dt
 import traceback
 import inspect
+from pathlib import Path
 
 #Data structure to hold all the data that was parsed from the PrizePicks API request
 class parsed_data:
@@ -115,7 +116,6 @@ def print_dict(my_dict):
 #(description)_(variable name)=(value). Example for mysql database password would be something like: 'mysql_pw=my_password'.
 def get_secret(query, fn = "secrets.txt"):
     
-
     #This function only parses lines if query matches the description. It puts the matched lines into a dictionary where the 
     #variable names are the keys and the values are the values.
     
@@ -228,8 +228,33 @@ def mount_hdd(sn):
     print(f"Mounting {dev_name} to {mount_point} SUCCEEDED")
     return mount_point
 
+#Function to look in passed in dir for files with suffix (excluding any names that contain the excluded substr) and return their names
+def fn_to_dep(dir, suffix, exclude):
+    exclude = exclude.lower()
+    fns = []
+    for fn in os.listdir(dir):
+        print(f"fn - {fn}")
+        if fn.endswith(suffix) and fn.lower().find(exclude) == -1:
+            fns.append(fn)
+    
+    if len(fns) == 0: print(f"No files to deprecate in {Path(".").resolve()}")
+    return fns    
+
 #Function just to dump mysql schema for storage as things change
-def dump_mysql_schema():
+def dump_mysql_schema( dep = False, dir = ".", suffix = "sql_schema.sql"):
+
+    if dep is True:
+        fns = fn_to_dep(dir,suffix,'deprecated')
+    
     config = get_secret("mysql")
-    schema_dump_cmd = f"echo '{config['sudo']}' | sudo -S mysqldump -u {config['un']} --password={config['pw']} --no-data {config['db_name']} > '{dt.now().strftime("%Y%m%d")}sql_schema.sql'"
+    schema_dump_cmd = f"echo '{config['sudo']}' | sudo -S mysqldump -u {config['un']} --password={config['pw']} --no-data {config['db_name']} > '{dt.now().strftime("%Y_%m_%d_%H_%M_%S")}sql_schema.sql'"
     subprocess.run(schema_dump_cmd, shell=True)
+
+    if dep is True and len(fns) > 0:
+        usr = input(f"Input 'y' if you would you like to deprecate these files: {fns}")
+        if usr == 'y':
+            for fn in fns:
+                print(f"Deprecating: {fn}")
+                subprocess.run(f"mv {fn} DEPRECATED_{fn}", shell = True)
+
+        else: print("skipping dreprecation")
