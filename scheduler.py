@@ -54,7 +54,8 @@ class prizepicks_scheduler:
     background = {
         "sts":ONE_HOUR,
         "dmp_sch":TEN_MINS,
-        "bu":ONE_DAY 
+        "bu":ONE_DAY,
+        "archive":ONE_HOUR
     }
 
     loop_wakeup_time = FIFTEEN_SEC #how often the loop should wake up to check for new requests
@@ -72,8 +73,8 @@ class prizepicks_scheduler:
 
     _bu_thread = Thread() # Thread object which will be managing the occasional backups in the background. I will only allow one singe backup thread at a time, so this will help enforce that
 
+    #Constructor for the scheduler class. 
     def __init__(self):
-        #Constructor for the scheduler class. 
         print("Setting up Scheduler class...")
         #Set up loggers
         self._create_loggers()
@@ -81,13 +82,15 @@ class prizepicks_scheduler:
         self.create_queue()     
         self._log_q_status()
 
+    #Destructor for class
     def __del__(self):
         #destructor for the scheduler class. This will save the existing queue data to a file for recovery next time the class is instantiated.
         self._save_queue_data()
         self.trace_log.info("DEL")
 
+    #Function to create loggers for the scheduler class. 
     def _create_loggers(self):
-        #Function to create loggers for the scheduler class. 2 logers are created, one to keep track of the stats of the DB so the size can be 
+        #2 logers are created, one to keep track of the stats of the DB so the size can be 
         #monitored over time and one to keep track of any error which may occur during operation
 
         '''---Need to find a logical way to decide how large these logs are allowed to be---'''
@@ -251,8 +254,8 @@ class prizepicks_scheduler:
 
         return True
     
+    #Create queue using all of the default rates for the commands
     def _create_default_queue(self):
-        #Create queue using all of the default rates for the known leagues
         
         self.cmd_q = list()
         for league in self.known_leagues:
@@ -261,9 +264,9 @@ class prizepicks_scheduler:
         for cmd, rate in self.background:
             self.schedule_rates[cmd] = rate
 
-
+    #Function to stop the scheduler loop. 
     def stop_scheduler(self):
-        #Function to stop the scheduler loop. This will set the stop flag to true and then wait for the loop to finish next time it is able. Function
+        #This will set the stop flag to true and then wait for the loop to finish next time it is able. Function
         #can be called by the user to stop the scheduler loop gracefully. Function also returns max time the loop will sleep for so caller can know 
         #how long to wait
         print("Stopping scheduler loop...")
@@ -400,42 +403,31 @@ class prizepicks_scheduler:
                 if start_time < next_game:
                     next_game = start_time
         
-        sec_to_nxt_gm = (next_game - datetime.now(timezone.utc)).total_seconds()
-        four_wks = 2419200
-        one_wk = 604800
-        four_days = 345600
-        one_day = 86400
-        six_hrs = 21600
-        three_hrs = 10800
-        one_hr = 3600
-        thrty_mins = 1800
-        fiften_mins = 900
-        five_mins = 300
-        two_mins = 120        
+        sec_to_nxt_gm = (next_game - datetime.now(timezone.utc)).total_seconds()       
 
         #over one month away, just check once a day
-        if sec_to_nxt_gm > four_wks:
+        if sec_to_nxt_gm > FOUR_WKS:
             self.schedule_rates[cmd_type] = self.min_req_rate 
 
         #4-1 week away
-        elif sec_to_nxt_gm > one_wk:
-            self.schedule_rates[cmd_type] = one_hr
+        elif sec_to_nxt_gm > ONE_WK:
+            self.schedule_rates[cmd_type] = ONE_HOUR
 
         #7-4 days away
-        elif sec_to_nxt_gm > four_days:
-            self.schedule_rates[cmd_type] = thrty_mins
+        elif sec_to_nxt_gm > FOUR_DAYS:
+            self.schedule_rates[cmd_type] = THIRTY_MINS
 
         #4-1 day away
-        elif sec_to_nxt_gm > one_day:
-            self.schedule_rates[cmd_type] = fiften_mins
+        elif sec_to_nxt_gm > ONE_DAY:
+            self.schedule_rates[cmd_type] = FIFTEEN_MINS
 
         #24-6 hrs away
-        elif sec_to_nxt_gm > six_hrs:
-            self.schedule_rates[cmd_type] = five_mins
+        elif sec_to_nxt_gm > SIX_HOURS:
+            self.schedule_rates[cmd_type] = FIVE_MINS
 
         #6-3 hrs away
-        elif sec_to_nxt_gm > three_hrs:
-            self.schedule_rates[cmd_type] = two_mins
+        elif sec_to_nxt_gm > THREE_HOURS:
+            self.schedule_rates[cmd_type] = TWO_MINS
 
         #3-0 hrs away
         elif sec_to_nxt_gm > 0:
@@ -488,6 +480,11 @@ class prizepicks_scheduler:
 
         return True
     
+    #Function to move stable data from the more dynamic tables to archive tables after they are expected to quit changing
+    def archive_table_data(self):
+
+        self._db_obj.move_to_archive()
+
     #Function to log current status of the queue and how long the loop is going to sleep for
     def _log_q_status(self, sleep_time = None):
         q_msg = "curq: "
@@ -539,6 +536,10 @@ class prizepicks_scheduler:
                 #Dump mysql backup
                 elif cmd_type == 'bu':
                     self._create_mysql_backup()
+
+                #move dynamic data from standard tables to archive tables
+                elif cmd_type == 'archive':
+                    self.archive_table_data()
                 
                 #if not dump scheduler command, then need to scrape prizepicks for data
                 elif cmd_type != 'dmp_sch':
@@ -717,7 +718,7 @@ class prizepicks_scheduler:
     def _create_mysql_backup(self):
         #crates a deamon thread and calls the prizepicks_db create_sql_backup function. Since this function will take a long time, we don't wait
         # for it to finish, the daemon thread will run in paralell until it is completed since no need to block all other execution of the main
-        # thread for this.
+        # thread for this
 
         #Check to make sure there is not already a backup thread alive, if there is, then don't start a new one and log an error
         if self._bu_thread.is_alive():

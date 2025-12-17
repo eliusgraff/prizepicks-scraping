@@ -45,7 +45,6 @@ class prizepicks_db:
         'game':[],
         'projection_type':[]
     }
-
     _MY_TABLES = [
         'projection',
         'team',
@@ -248,7 +247,6 @@ class prizepicks_db:
         return self.read_query(sql_query)
 
     #Function to create timeseries entires for each entry in the incoming row if it exists
-
     def _add_timeseries(self, hdr_order, incoming_row, row_id, scrape_id, last_values):
     #If timeseries data does exist in the incoming row, then the row which must be added to the
     #mysql is returned
@@ -462,22 +460,9 @@ class prizepicks_db:
 
         #Goes through and add in all the latest row data to the target table
         if len(my_data_list) > 0:
-            #All of the data which needs to be inserted into the projection table is manged here
 
-            #Create the SQL query to format and insert the data into the db
-            data_alias_list = str()
-            for _ in range(len(my_data_list[0])):
-                data_alias_list += "%s,"
-            my_data_write_query = f"INSERT INTO {table_name} VALUES ({data_alias_list[:-1]});"
-            
-            #Execute the SQL query created above
-            try:
-                self._sql_cursor.executemany(my_data_write_query, my_data_list)
-
-            except mysql.connector.Error as sql_err:
-                #If something goes wrong with delete query, then that is really bad. Stop the program...
-                self._log.critical(f"2: qry={my_data_write_query} - err={sql_err.__class__.__name__} - msg={sql_err.msg}")
-                raise debug_exc(sql_err, "2", {"qry":my_data_write_query, "dta_lst":my_data_list}, "PPDB")
+            #call function to insert the data list into the table_name
+            self._insert_many_rows(table_name, my_data_list)
 
             #log however many rows were added to which table
             self._log.info(f"0: add={len(my_data_list)} - tbl={table_name}")
@@ -505,7 +490,6 @@ class prizepicks_db:
         #Some of the projection attributes are expected to change all the time. Rather than keep changing the whole projection record every time, these
         #values are tracked/stored in this timeseries table and the latest values are alwyas inserted in here. This does not check if that value has changed
         #at all, it just adds it no matter what
-
 
         if len(timeseries_list) > 0:
 
@@ -704,38 +688,22 @@ class prizepicks_db:
         result = self._sql_cursor.fetchall()
         return result
 
-    #Function to compare the expected schema file in the repository with what the schema is of the actual database that is being used
-    def compare_sql_schema(self):
-    
-        my_creds = self._config
-        dir_path = os.path.dirname(os.path.abspath(__file__))
-        fn = os.path.join(dir_path, self._config['schema_file'])
-        sudo = self._config.get("sudo")
-
-        if sudo is not None:
-            schema_diff_cmd = f"echo '{sudo}' | sudo -S mysqldump -u {self._config['un']} --password={self._config['pw']} --no-data {self._config['db_name']} | diff - {fn}"
-        else:
-            schema_diff_cmd = f"sudo mysqldump -u {self._config['un']} --password={self._config['pw']} --no-data {self._config['db_name']} | diff - {fn}"
-        
-        try:
-            result = subprocess.run(schema_diff_cmd, shell=True, capture_output=True, text=True)
-        except subprocess.CalledProcessError as e:
-            # Handle errors if the curl command returns a non-zero exit code
-            print(f"command failed with error code {e.returncode}")
-            print(f"Stderr: {e.stderr}")
-
-        actual = []
-        expected = []
+    #functtion to go through all the lines that have changed in a change object from command line
+    def _valid_schema_changes(self, rows):
 
         #These are the things that the program is going to look for when it decides if the changes in the diff are acceptable or not
         change_allowed = {
             "AUTO_INCREMENT=",
         }
 
-        rows = result.stdout.splitlines()
+        #get starting line number in comparison
         line_nums = rows[0]
 
-        #going through each of the rows of the diff output and check to see if they are acceptable changes
+        #lists to hold strings for the actual and expected schema attributes
+        actual = []
+        expected = []
+
+        #loop through each of the rows to determine if schema differences are ok
         for row in rows[1:]:
 
             #Assign correct string based on whether they are the sql_schema or the expected_schema
@@ -791,34 +759,106 @@ class prizepicks_db:
                             expected_comp = expected_comp[:change_e] + expected_comp[delim:]
 
 
-                    #If these are not the same the change is to be considered unacceptable and return False
+                    #If these are not the same the change is to be considered unacceptable and raise
                     if actual_comp.replace(" ","") != expected_comp.replace(" ",""):
                         self._log.critical(f"1: lnum={line_nums} exp={expected_comp} act={actual_comp}")
                         raise debug_exc (ValueError("Expected sql schema is not same as actual"), "1", {"lnum":{line_nums}, "exp":{expected_comp}, "act":actual_comp}, "PPDB")
 
+                #once comparison is done, then clear variables and reset the line nums
                 actual = []
                 expected = []
                 line_nums = row
         
+    #function to insert many rows into a single table with single statement
+    def _insert_many_rows(self, table_name, rows):
+        
+        #Create the SQL query to format and insert the data into the db
+        data_alias_list = str()
+        for _ in range(len(rows[0])): data_alias_list += "%s,"
+        my_data_write_query = f"INSERT INTO {table_name} VALUES ({data_alias_list[:-1]});"
+
+        #Execute the SQL query created above
+        try:
+            self._sql_cursor.executemany(my_data_write_query, rows)
+
+        except mysql.connector.Error as sql_err:
+            #If something goes wrong with query, then that is really bad. Stop the program...
+            self._log.critical(f"2: qry={my_data_write_query} - err={sql_err.__class__.__name__} - msg={sql_err.msg}")
+            raise debug_exc(sql_err, "2", {"qry":my_data_write_query, "dta_lst":rows}, "PPDB")
+
+    #Function to compare the expected schema file in the repository with what the schema is of the actual database that is being used
+    def compare_sql_schema(self):
+    
+        #setting up system paths and getting info from config file
+        dir_path = os.path.dirname(os.path.abspath(__file__))
+        fn = os.path.join(dir_path, self._config['schema_file'])
+        sudo = self._config.get("sudo")
+
+        #use commandline tool to dump the mysql schema and compare it to the expected file
+        if sudo is not None:
+            schema_diff_cmd = f"echo '{sudo}' | sudo -S mysqldump -u {self._config['un']} --password={self._config['pw']} --no-data {self._config['db_name']} | diff - {fn}"
+        else:
+            schema_diff_cmd = f"sudo mysqldump -u {self._config['un']} --password={self._config['pw']} --no-data {self._config['db_name']} | diff - {fn}"
+        
+        try:
+            result = subprocess.run(schema_diff_cmd, shell=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            # Handle errors if the curl command returns a non-zero exit code
+            print(f"command failed with error code {e.returncode}")
+            print(f"Stderr: {e.stderr}")
+
+        #put ech of the lines that changed into different strings in list go through each of the rows
+        #of the diff output and check to see if they are acceptable changes
+        rows = result.stdout.splitlines()
+
+        #If there are lines in the change object, check if any of them invalidate the schema
+        if len(rows) > 0:
+            self._valid_schema_changes(rows)
+        
+        #if it gets here then we know the schema is valid, return true and set the db_name variable
         self._db_name = self._config['db_name']
         return True
 
-    def DEV_move_to_archive(self):
+    #Function to move cold data to archive tables for the colder data
+    @log_perf
+    def move_to_archive(self):
 
-        #In general, we want make the transfers of data as large as possible so that we get big sequential writes as we go. 
-        #This should not ever have to be deleted/overwritten once it is archived
+        hot_tables = ['projection'] #List of tables where many changes are expected to be made, stored in smaller tables
+        criteria = 6 #number of hours old a game has to be to be eligible for archive
 
-        #X should be not just how many hours after the start of a game we move all that data to the archive but also how often we check for this condition
+        #Get all the ids of games that started more than critera # of hours ago
+        game_id_query = f"SELECT id FROM game WHERE start_time < NOW() - INTERVAL {criteria} HOUR"
+        id_list = self.read_query(game_id_query)
+        gm2mv = len(id_list)
+        self._log.info(f"0: gm2mv={gm2mv} interv={criteria}")
 
-        #Get list of games that are > X hours after start time
-            #Since game lengths vary and can be delayed, I think that 6-12 hrs is safe, but maybe need to think about it a bit more
+        #if no game ids to move then just return
+        if gm2mv == 0: 
+            self._log.info("00 msg=no games to move")
+            return
         
-        #Get list of projections that are covered by those games
+        #go through each of the hot tables and move all rows where game_id is in the list of game ids needed to be moved
+        for table_name in hot_tables:
 
-        #Transer all the projection data along with all the rows for timeseries and changes for those projections to archive
+            #set up the column names and list of ids that need to be moved
+            col_name = 'id' if table_name == 'game' else 'game'
+            ids = ','.join([str(data_id[0]) for data_id in id_list])
 
-        #Move all the scrape datas to HDD as well? See if this needs to ever go on the SSD or can go straight to the HDD since this should never really change
-        pass
+            #insert existing data into the archive table
+            copy_cmd = f"INSERT INTO {table_name}_archive SELECT * FROM {table_name} WHERE {col_name} IN ({ids})"
+            input(copy_cmd)
+            self._sql_cursor.execute(copy_cmd)
+
+            #delete the uneeded rows in the hot table
+            delete_query = f"DELETE FROM {table_name} WHERE {col_name} IN ({ids})"
+            self._sql_cursor.execute(delete_query)
+
+            rownum = self.read_query("SELECT ROW_COUNT()")
+            self._log.info(f"0: gmsmvd={rownum[0][0]}")
+        
+        #lock in above changes made
+        self._sql_conn.commit()
+        return
 
     #Creates a backup of the full mysql db with mysqldump and zips it up for backup purposes
     @log_perf
