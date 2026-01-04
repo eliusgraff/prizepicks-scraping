@@ -73,7 +73,7 @@ class prizepicks_db:
         self._sql_cursor = self._sql_conn.cursor()
         self._set_external_data_names()        
      
-    #Function to set _config['archive'] and make sure that the path it points to is legit
+    #Function to set _config['archive'] and make sure that the path it points to exists
     def _set_archive_path(self):
         #if archive path is given, make sure it exists
         if self._config.get('archive') is not None:
@@ -89,7 +89,6 @@ class prizepicks_db:
         if os.path.exists(self._config['archive']) is False:
             self._log.critical(f"1: {self._config['archive']}")
             raise debug_exc( FileNotFoundError, "1", {"arch_path":self._config['archive']}, "PPDB")
-
 
     #Create a log for this class
     def _create_log(self):
@@ -803,9 +802,11 @@ class prizepicks_db:
         try:
             result = subprocess.run(schema_diff_cmd, shell=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as e:
-            # Handle errors if the curl command returns a non-zero exit code
+            # Handle errors if the command returns a non-zero exit code
             print(f"command failed with error code {e.returncode}")
             print(f"Stderr: {e.stderr}")
+            self._log.critical(f"1: failed creation of compare object from:{fn}")
+            raise debug_exc(e,"1",{"cml":schema_diff_cmd})
 
         #put ech of the lines that changed into different strings in list go through each of the rows
         #of the diff output and check to see if they are acceptable changes
