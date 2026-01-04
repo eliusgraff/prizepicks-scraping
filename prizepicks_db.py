@@ -104,7 +104,7 @@ class prizepicks_db:
         stats_logname = f"{__name__}_stats"
         self._log = logging.getLogger(stats_logname)
         self._log.setLevel("INFO")
-        stats_file_handler = RotatingFileHandler(file_handler_path, maxBytes=5000000, backupCount=5)
+        stats_file_handler = RotatingFileHandler(file_handler_path, maxBytes=5000000, backupCount=1)
         stats_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
         self._log.addHandler(stats_file_handler)
 

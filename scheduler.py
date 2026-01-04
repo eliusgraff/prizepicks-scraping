@@ -21,6 +21,7 @@ FOUR_WKS = 2419200
 ONE_WK = 604800
 FOUR_DAYS = 345600
 ONE_DAY = 86400
+TWELVE_HOURS = 43200
 SIX_HOURS = 21600
 THREE_HOURS = 10800
 ONE_HOUR = 3600
@@ -47,19 +48,21 @@ class prizepicks_scheduler:
         "MLB",
         "WNBA",
         "Soccer",
-        "NBA"
+        "NBA",
+        "NHL",
+        "TENNIS"
     ]
 
     default_req_rate = FIVE_MINS
     min_req_rate = ONE_DAY
     max_req_rate = ONE_MIN
 
-    #Dictionary to keep track of all of the non-essential 'background' activities that need to happen and the rate at which they should be scheduled
+    #Dictionary to keep track of all of the non-essential 'background' activities that happen and the rate at which they should be scheduled
     background = {
-        "sts":ONE_HOUR,
+        "sts":ONE_DAY,
         "dmp_sch":TEN_MINS,
         "bu":ONE_DAY,
-        "archive":ONE_HOUR
+        "archive":TWELVE_HOURS
     }
 
     loop_wakeup_time = FIFTEEN_SEC #how often the loop should wake up to check for new requests
@@ -106,7 +109,7 @@ class prizepicks_scheduler:
         stats_logname = f"{__name__}_stats"
         self.stats_log = logging.getLogger(stats_logname)
         self.stats_log.setLevel("INFO")
-        stats_file_handler = RotatingFileHandler(os.path.join(self.log_path,f"{stats_logname}.log"), maxBytes=5000000, backupCount=5)
+        stats_file_handler = RotatingFileHandler(os.path.join(self.log_path,f"{stats_logname}.log"), maxBytes=5000000, backupCount=3)
         stats_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
         self.stats_log.addHandler(stats_file_handler)
 
@@ -248,13 +251,16 @@ class prizepicks_scheduler:
         for cmd in remaining_items:
 
             #If command is added schedule to execute right away
-            self.cmd_q.append((datetime.now(timezone.utc), cmd))
+            self.cmd_q.insert(0,(datetime.now(timezone.utc), cmd))
             
             #Add correct schedule rate for the new thing
             if cmd in self.known_leagues:
                 self.schedule_rates[cmd] = self.default_req_rate
             else:
                 self.schedule_rates[cmd] = self.background[cmd]
+
+        #sanity check making sure q is sorted before beginning execution
+        self.cmd_q.sort()
 
         return True
     

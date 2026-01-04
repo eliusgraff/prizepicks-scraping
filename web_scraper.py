@@ -13,6 +13,8 @@ known_leagues = {
     "SOCCER":82,
     "CFB2H": 150,
     "NBA": 7,
+    "NHL": 8,
+    "TENNIS":5,
 }
 
 log_prefix = "SCRAPER"
