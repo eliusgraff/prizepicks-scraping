@@ -13,6 +13,10 @@ import json
 from utils import debug_exc
 from threading import Thread #enumerate - Need to import this as something else since enumerate is a funciton in the python standard library and this conflicts with that
 
+'''---Temporary adds---'''
+import traceback
+import subprocess
+
 FOUR_WKS = 2419200
 ONE_WK = 604800
 FOUR_DAYS = 345600
@@ -747,9 +751,20 @@ if __name__ == "__main__":
     s = prizepicks_scheduler()
     try:
         s.run_scheduler()
+
     except Exception as e:
         '''---Need to add logging to this in order to catch any undexpected stuff---'''
-        del s
-        raise e
+        with open(os.path.join(os.path.dirname(__file__),"logs",f"killer_error_log{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}.err"), "a") as f:
+            # traceback.format_exc() returns the full traceback as a string
+            f.write("--- New Error ---\n")
+            f.write(traceback.format_exc())
+            f.write("\n")
     
     del s
+    '''---temporary add---
+    password = "RandallandSue17"
+    command = ["sudo", "-S", "shutdown", "-h", "now"]
+
+    # Start the process and send the password followed by a newline
+    proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    stdout, stderr = proc.communicate(input=password + "\n")'''

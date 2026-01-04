@@ -837,6 +837,7 @@ class prizepicks_db:
             self._log.info("00 msg=no games to move")
             return
         
+        '''---Should revisit how many hot tables there are and if all this code really needs to be here---'''
         #go through each of the hot tables and move all rows where game_id is in the list of game ids needed to be moved
         for table_name in hot_tables:
 
@@ -844,13 +845,14 @@ class prizepicks_db:
             col_name = 'id' if table_name == 'game' else 'game'
             ids = ','.join([str(data_id[0]) for data_id in id_list])
 
-            #insert existing data into the archive table
-            copy_cmd = f"INSERT INTO {table_name}_archive SELECT * FROM {table_name} WHERE {col_name} IN ({ids})"
-            input(copy_cmd)
-            self._sql_cursor.execute(copy_cmd)
-
-            #delete the uneeded rows in the hot table
+            #SQL commands to insert existing data into the archive table and delete it from the hot one
+            copy_cmd = f"INSERT IGNORE INTO {table_name}_archive SELECT * FROM {table_name} WHERE {col_name} IN ({ids})"
             delete_query = f"DELETE FROM {table_name} WHERE {col_name} IN ({ids})"
+            self._sql_cursor.execute(copy_cmd)
+            '''
+            There is possibility where if code gets stopped before below line is completed then DB is left in a bad state and primary keys
+            will be violated in the next pass. 
+            '''
             self._sql_cursor.execute(delete_query)
 
             rownum = self.read_query("SELECT ROW_COUNT()")
