@@ -1,5 +1,6 @@
 # PrizePicks scraping
 ---GETTING STARTED---
+
 0) Download and set up mysql database. Keep track of the root username and password
     If you are going to store some tables in an non-default location (like on another drive in system), then you will need to add the below into your mysql options file:
         innodb_directories =/path/to/directory
