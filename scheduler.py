@@ -768,7 +768,6 @@ if __name__ == "__main__":
     
     del s
     '''---temporary add---
-    password = "RandallandSue17"
     command = ["sudo", "-S", "shutdown", "-h", "now"]
 
     # Start the process and send the password followed by a newline
