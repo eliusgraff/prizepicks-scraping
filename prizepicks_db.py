@@ -8,6 +8,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import traceback
 import subprocess
+from pathlib import Path
 
 #Helper class to help with holding data for many to many relationships. To compare and decide what needs to be updated
 class one_to_many:
@@ -62,6 +63,7 @@ class prizepicks_db:
     _archive_path = None
     _log_path = None
     _config = None
+    _dt_frmt = "%Y_%m_%d_%H_%M_%S"
 
     def __init__(self):
 
@@ -869,10 +871,13 @@ class prizepicks_db:
         #Stores backup of mysql database, zips it up and stores either in log folder or an archive location if that is provided by the secrets file
 
         #going to put the full logical dump in the logs folder so that it is fast, then will zip it up and send to the archive, which may be on lower media
-        zip_path = os.path.join(self._archive_path, f"{self._db_name}_dump_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.zip")
+        fn = f"{self._db_name}_dump_{datetime.now().strftime(self._dt_frmt)}.zip"
+        zip_path = os.path.join(self._log_path, fn)
+        archive_zip_path = os.path.join(self._archive_path, fn)
 
         #linux commands to dump and zip compress the backup with gzip
         dump_cmd = f"mysqldump -u {self._config['un']} --password={self._config['pw']} {self._db_name} | gzip -9 > {zip_path}"
+        cp_to_arch = f"cp {zip_path} {archive_zip_path}"
         
         try:
             #Execute command above
@@ -883,3 +888,126 @@ class prizepicks_db:
             print(f"command failed with error code {e.returncode}")
             print(f"Stderr: {e.stderr}")
             raise debug_exc (subprocess.CalledProcessError, "1", {"sh_cmd":dump_cmd,"ercode":e.returncode,"ermsg":e.stderr}, "PPDB")
+        
+        try:
+            #Execute command above
+            subprocess.run(cp_to_arch, shell=True, text=True, stdout = subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+        except subprocess.CalledProcessError as e:
+            # Handle errors if the curl command returns a non-zero exit code
+            print(f"command failed with error code {e.returncode}")
+            print(f"Stderr: {e.stderr}")
+            raise debug_exc (subprocess.CalledProcessError, "1", {"sh_cmd":cp_to_arch,"ercode":e.returncode,"ermsg":e.stderr}, "PPDB")
+        
+        #call function to go in and clean up any old databases which are obseleted by the new one. Current design has just the latest being stored to logs
+        #file, then other backups from the last few says and even occastional older backups being stored in the archive directory. These functions below
+        #make sure that the correct backups are stored in those places
+        self._clean_archive()
+        self._clean_log_bu()
+
+    def _clean_archive(self):
+        #Function which goes through the directory at self._archive_path and sees which of the mysql backups can be deleted
+        #backups are big so keeping a lot of them is probably not a great idea. Will keep daily backups for 3 days, and will 
+        #keep that last 3 Mondays of backups and last 1 firsts of the month backups. This will help just in case something gets
+        #corrupted with data and I don't catch it until too late
+        bu_mnths = 2
+        bu_mndys = 3
+        bu_days = 3
+
+        #Get all file names in archive directory which are db dump zip files
+        p = Path(self._archive_path)
+        dmp_fs = [file_path for file_path in p.rglob(f'*{self._db_name}_dump_*.zip') if file_path.is_file()]
+
+        mnths = []
+        mndys = []
+        days = []
+
+        #list to be filled up with all the files to remove
+        to_del = []
+        
+        #pick out the date and time of the dumps from the fn
+        for (i, dt_str) in enumerate([str(fn)[-23:-4] for fn in dmp_fs]):
+            #convert string to datetime object. If issues with that log any errors with that and skip it
+            try:
+                my_dt = datetime.strptime(dt_str, self._dt_frmt)
+            except ValueError:
+                self._log.warning(f"01: badfn={dmp_fs[i]} - dtstr={dt_str}")
+                continue
+
+            diff = datetime.now() - my_dt
+            dmp_str = str(dmp_fs[i])
+
+            #if time is in the future then it's safe to delete that one, something has gone wrong and log it
+            if diff.days < 0:
+                self._log.debug(f"01: imposiblfn={dmp_str}")
+                to_del.append(dmp_str)
+
+            #dont delete the file if it falls within last bu_days days
+            elif diff.days < bu_days: 
+                days.append(dmp_str)
+
+            #dont delete the file if it falls within last bu_mndys mondays
+            elif diff.days < (bu_mndys*7) and my_dt.weekday() == 0:
+                mndys.append(dmp_str)
+
+            #dont delete the file if it falls on the first of the last bu_mnts months
+            elif diff.days < (bu_mnths*31) and my_dt.day == 1:
+                mnths.append(dmp_str)
+
+            #if it gets here then it does not fall into a bucket worth saving, so add it to delete list
+            else:
+                to_del.append(dmp_str)
+
+        self._log.debug(f"0: mnths={"/t".join(mnths)}")
+        self._log.debug(f"0: mndys={"/t".join(mndys)}")
+        self._log.debug(f"0: days={"/t".join(days)}")
+        self._log.debug(f"0: del={"/t".join(to_del)}")
+        
+        for f_path in to_del:
+            try:
+                os.remove(f_path)
+            except OSError:
+                self._log.warning(f"02: cntdel={f_path}")
+                pass
+
+    #Function to go through the logs directory and clean up any old mysql backups
+    def _clean_log_bu(self):
+        #Get all file names in logs directory which are db dump zip files
+        p = Path(self._log_path)
+        dmp_fs = [file_path for file_path in p.rglob(f'*{self._db_name}_dump_*.zip') if file_path.is_file()]
+
+        #list to be filled up with all the files to remove
+        to_del = []
+        
+        #pick out the date and time of the dumps from the fn
+        for (i, dt_str) in enumerate([str(fn)[-23:-4] for fn in dmp_fs]):
+            #convert string to datetime object. If issues with that log any errors with that and skip it
+            try:
+                my_dt = datetime.strptime(dt_str, self._dt_frmt)
+            except ValueError:
+                self._log.warning(f"01: badfn={dmp_fs[i]} - dtstr={dt_str}")
+                continue
+
+            diff = datetime.now() - my_dt
+            dmp_str = str(dmp_fs[i])
+
+            #if time is in the future then it's safe to delete that one, something has gone wrong and log it
+            if diff.days < 0:
+                self._log.debug(f"01: imposiblfn={dmp_str}")
+                print(f"impssible: {dmp_str}")
+                to_del.append(dmp_str)
+
+            #if diff was over 1 day ago, then it's safe to remove
+            elif diff.days > 0: 
+                to_del.append(dmp_str)
+                print(f"too old {dmp_str}")
+
+        self._log.debug(f"0: del={"/t".join(to_del)}")
+        print(to_del)
+        
+        for f_path in to_del:
+            try:
+                os.remove(f_path)
+            except OSError:
+                self._log.warning(f"02: cntdel={f_path}")
+                pass

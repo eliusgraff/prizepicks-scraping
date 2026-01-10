@@ -12,8 +12,6 @@ from logging.handlers import RotatingFileHandler
 import json
 from utils import debug_exc
 from threading import Thread #enumerate - Need to import this as something else since enumerate is a funciton in the python standard library and this conflicts with that
-
-'''---Temporary adds---'''
 import traceback
 import subprocess
 
@@ -42,20 +40,24 @@ class prizepicks_scheduler:
     _db_obj = prizepicks_db.prizepicks_db() #connection to the prizepicks db
     _stop_loop = False #bool to track whether the scheduler loop is going or not. Allows for programatic way to kill the loop from parent thread
     is_asleep = False #bool to track whether the scheduler loop is sleeping in between api polls or is processing data
+    
+    '''---Uncomment these---'''
     known_leagues = [
         "NFL",
         "CFB",
-        "MLB",
-        "WNBA",
-        "Soccer",
-        "NBA",
+        #"MLB",
+        #"WNBA",
+        #"Soccer",
+        #"NBA",
         "NHL",
-        "TENNIS"
+        #"TENNIS"
     ]
 
     default_req_rate = FIVE_MINS
     min_req_rate = ONE_DAY
-    max_req_rate = ONE_MIN
+    
+    '''---Need to change this back to be ONE_MIN---'''
+    max_req_rate = FIVE_MINS
 
     #Dictionary to keep track of all of the non-essential 'background' activities that happen and the rate at which they should be scheduled
     background = {
@@ -82,6 +84,7 @@ class prizepicks_scheduler:
 
     #Constructor for the scheduler class. 
     def __init__(self):
+        input("THIS IS A DEVELOPMENT VERSION, BEFORE PUSHONG PLEASE UPDATE THE MEMBER VARIABLES BEFORE PRODUCTION ENVIRONMENT")
         print("Setting up Scheduler class...")
         #Set up loggers
         self._create_loggers()
@@ -768,7 +771,6 @@ if __name__ == "__main__":
     
     del s
     '''---temporary add---
-    password = "RandallandSue17"
     command = ["sudo", "-S", "shutdown", "-h", "now"]
 
     # Start the process and send the password followed by a newline
