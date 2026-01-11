@@ -8,6 +8,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import traceback
 import subprocess
+from pathlib import Path
 
 #Helper class to help with holding data for many to many relationships. To compare and decide what needs to be updated
 class one_to_many:
@@ -62,6 +63,7 @@ class prizepicks_db:
     _archive_path = None
     _log_path = None
     _config = None
+    _dt_frmt = "%Y_%m_%d_%H_%M_%S"
 
     def __init__(self):
 
@@ -869,10 +871,13 @@ class prizepicks_db:
         #Stores backup of mysql database, zips it up and stores either in log folder or an archive location if that is provided by the secrets file
 
         #going to put the full logical dump in the logs folder so that it is fast, then will zip it up and send to the archive, which may be on lower media
-        zip_path = os.path.join(self._archive_path, f"{self._db_name}_dump_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.zip")
+        fn = f"{self._db_name}_dump_{datetime.now().strftime(self._dt_frmt)}.zip"
+        zip_path = os.path.join(self._log_path, fn)
+        archive_zip_path = os.path.join(self._archive_path, fn)
 
         #linux commands to dump and zip compress the backup with gzip
         dump_cmd = f"mysqldump -u {self._config['un']} --password={self._config['pw']} {self._db_name} | gzip -9 > {zip_path}"
+        cp_to_arch = f"cp {zip_path} {archive_zip_path}"
         
         try:
             #Execute command above
@@ -883,3 +888,97 @@ class prizepicks_db:
             print(f"command failed with error code {e.returncode}")
             print(f"Stderr: {e.stderr}")
             raise debug_exc (subprocess.CalledProcessError, "1", {"sh_cmd":dump_cmd,"ercode":e.returncode,"ermsg":e.stderr}, "PPDB")
+        
+        try:
+            #Execute command above
+            subprocess.run(cp_to_arch, shell=True, text=True, stdout = subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+        except subprocess.CalledProcessError as e:
+            # Handle errors if the curl command returns a non-zero exit code
+            print(f"command failed with error code {e.returncode}")
+            print(f"Stderr: {e.stderr}")
+            raise debug_exc (subprocess.CalledProcessError, "1", {"sh_cmd":cp_to_arch,"ercode":e.returncode,"ermsg":e.stderr}, "PPDB")
+        
+        #Call functions to clean up any old backups in the archive or log directories with their respective rules
+        self._clean_archive(self._archive_path, days=2, wks=2, mnths=2)    #since backup is cold storage ok to store more. Also want to store BUs from a while ago in case problem is not found until far after bug is introduced
+        self._clean_archive(self._log_path, days=1, wks=0, mnths=0)    #logs are stored in warmer storage so want to store less. Just store the most recent day and nothing more
+
+    #Function which returns whether a datetime is valid for backing up
+    def _is_backup_date(self, my_dt, bu_days, bu_mndys, bu_mnths):
+            
+        #get number of days away the dump is from and also pull in the file name
+        diff = datetime.now() - my_dt
+
+        #based on func args, decide if my_dt is valid for keeping a backup that day
+        if diff.days < 0:
+            #if time is in the future then it's safe to delete that one, something has gone wrong and log it
+            return False
+
+        elif diff.days < bu_days:
+            #dont delete the file if it falls within last bu_days days
+            return True
+
+        elif diff.days < (bu_mndys*7) and my_dt.weekday() == 0:
+            #dont delete the file if it falls within last bu_mndys mondays
+            return True
+
+        elif diff.days < (bu_mnths*31) and my_dt.day == 1:
+            #dont delete the file if it falls on the first of the last bu_mnts months
+            return True
+
+        else:
+            #if it gets here then it does not fall into a bucket worth saving
+            return False
+
+    #Function takes in path, number of months, weeks and days to keep backups for and cleans out any unnecessary backups stored at the path
+    def _clean_archive(self, bu_path, days, wks, mnths ):
+
+        #Get all file names in bu_path directory which are db dump zip files
+        p = Path(bu_path)
+        dmp_fs = [file_path for file_path in p.rglob(f'*{self._db_name}_dump_*.zip') if file_path.is_file()]
+
+        #list to be filled up with all the files to remove and dict to keep track of latest backups for each day
+        to_del = []
+        dates = dict()
+        
+        #pick out the date and time of the dumps from the fn
+        for (i, dt_str) in enumerate([str(fn)[-23:-4] for fn in dmp_fs]):
+            
+            #convert string to datetime object. If unable, log then skip it
+            try:
+                my_dt = datetime.strptime(dt_str, self._dt_frmt)
+            except ValueError:
+                self._log.warning(f"01: badfn={dmp_fs[i]} - dtstr={dt_str}")
+                continue
+
+            #If that date is valid one to be kept then check to see if that is the latest BU from that day
+            if self._is_backup_date(my_dt, days, wks, mnths):
+                
+                day_as_str = my_dt.strftime("%y_%m_%d")
+
+                #If no other BUs on that day, then add my_dt and file name in that spot 
+                if dates.get(day_as_str) is None:
+                    dates[day_as_str] = (my_dt, dmp_fs[i])
+
+                #If existing date is same or more recent than my_dt, then can delete file corresponding to my_dt
+                elif dates[day_as_str][0] >= my_dt:
+                    to_del.append(dmp_fs[i])
+
+                #If my_dt is newer than the datetime already in the dict, swap it with my_dt and cooreponding file and add the old one to the delete list
+                elif dates[day_as_str][0] < my_dt:
+                    to_del.append(dates[day_as_str][1])
+                    dates[day_as_str] = (my_dt, dmp_fs[i])
+
+            #If date is not one that should have it's backup saved, then just delete it
+            else:
+                to_del.append(dmp_fs[i])
+        
+        #log fns to delete and BUs
+        self._log.info(f"0 del={to_del} - bus={[each[1] for each in dates.values()]}")
+
+        #Go through each of the fns to delete and delete them
+        for f_path in to_del:
+            try:
+                os.remove(f_path)
+            except OSError:
+                self._log.warning(f"02: cntdel={f_path}")
