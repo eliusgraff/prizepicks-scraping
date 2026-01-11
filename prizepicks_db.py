@@ -899,115 +899,86 @@ class prizepicks_db:
             print(f"Stderr: {e.stderr}")
             raise debug_exc (subprocess.CalledProcessError, "1", {"sh_cmd":cp_to_arch,"ercode":e.returncode,"ermsg":e.stderr}, "PPDB")
         
-        #call function to go in and clean up any old databases which are obseleted by the new one. Current design has just the latest being stored to logs
-        #file, then other backups from the last few says and even occastional older backups being stored in the archive directory. These functions below
-        #make sure that the correct backups are stored in those places
-        self._clean_archive()
-        self._clean_log_bu()
+        #Call functions to clean up any old backups in the archive or log directories with their respective rules
+        self._clean_archive(self._archive_path, days=2, wks=2, mnths=2)    #since backup is cold storage ok to store more. Also want to store BUs from a while ago in case problem is not found until far after bug is introduced
+        self._clean_archive(self._log_path, days=1, wks=0, mnths=0)    #logs are stored in warmer storage so want to store less. Just store the most recent day and nothing more
 
-    def _clean_archive(self):
-        #Function which goes through the directory at self._archive_path and sees which of the mysql backups can be deleted
-        #backups are big so keeping a lot of them is probably not a great idea. Will keep daily backups for 3 days, and will 
-        #keep that last 3 Mondays of backups and last 1 firsts of the month backups. This will help just in case something gets
-        #corrupted with data and I don't catch it until too late
-        bu_mnths = 2
-        bu_mndys = 3
-        bu_days = 3
+    #Function which returns whether a datetime is valid for backing up
+    def _is_backup_date(self, my_dt, bu_days, bu_mndys, bu_mnths):
+            
+        #get number of days away the dump is from and also pull in the file name
+        diff = datetime.now() - my_dt
 
-        #Get all file names in archive directory which are db dump zip files
-        p = Path(self._archive_path)
-        dmp_fs = [file_path for file_path in p.rglob(f'*{self._db_name}_dump_*.zip') if file_path.is_file()]
-
-        mnths = []
-        mndys = []
-        days = []
-
-        #list to be filled up with all the files to remove
-        to_del = []
-        
-        #pick out the date and time of the dumps from the fn
-        for (i, dt_str) in enumerate([str(fn)[-23:-4] for fn in dmp_fs]):
-            #convert string to datetime object. If issues with that log any errors with that and skip it
-            try:
-                my_dt = datetime.strptime(dt_str, self._dt_frmt)
-            except ValueError:
-                self._log.warning(f"01: badfn={dmp_fs[i]} - dtstr={dt_str}")
-                continue
-
-            diff = datetime.now() - my_dt
-            dmp_str = str(dmp_fs[i])
-
+        #based on func args, decide if my_dt is valid for keeping a backup that day
+        if diff.days < 0:
             #if time is in the future then it's safe to delete that one, something has gone wrong and log it
-            if diff.days < 0:
-                self._log.debug(f"01: imposiblfn={dmp_str}")
-                to_del.append(dmp_str)
+            return False
 
+        elif diff.days < bu_days:
             #dont delete the file if it falls within last bu_days days
-            elif diff.days < bu_days: 
-                days.append(dmp_str)
+            return True
 
+        elif diff.days < (bu_mndys*7) and my_dt.weekday() == 0:
             #dont delete the file if it falls within last bu_mndys mondays
-            elif diff.days < (bu_mndys*7) and my_dt.weekday() == 0:
-                mndys.append(dmp_str)
+            return True
 
+        elif diff.days < (bu_mnths*31) and my_dt.day == 1:
             #dont delete the file if it falls on the first of the last bu_mnts months
-            elif diff.days < (bu_mnths*31) and my_dt.day == 1:
-                mnths.append(dmp_str)
+            return True
 
-            #if it gets here then it does not fall into a bucket worth saving, so add it to delete list
-            else:
-                to_del.append(dmp_str)
+        else:
+            #if it gets here then it does not fall into a bucket worth saving
+            return False
 
-        self._log.debug(f"0: mnths={"/t".join(mnths)}")
-        self._log.debug(f"0: mndys={"/t".join(mndys)}")
-        self._log.debug(f"0: days={"/t".join(days)}")
-        self._log.debug(f"0: del={"/t".join(to_del)}")
-        
-        for f_path in to_del:
-            try:
-                os.remove(f_path)
-            except OSError:
-                self._log.warning(f"02: cntdel={f_path}")
-                pass
+    #Function takes in path, number of months, weeks and days to keep backups for and cleans out any unnecessary backups stored at the path
+    def _clean_archive(self, bu_path, days, wks, mnths ):
 
-    #Function to go through the logs directory and clean up any old mysql backups
-    def _clean_log_bu(self):
-        #Get all file names in logs directory which are db dump zip files
-        p = Path(self._log_path)
+        #Get all file names in bu_path directory which are db dump zip files
+        p = Path(bu_path)
         dmp_fs = [file_path for file_path in p.rglob(f'*{self._db_name}_dump_*.zip') if file_path.is_file()]
 
-        #list to be filled up with all the files to remove
+        #list to be filled up with all the files to remove and dict to keep track of latest backups for each day
         to_del = []
+        dates = dict()
         
         #pick out the date and time of the dumps from the fn
         for (i, dt_str) in enumerate([str(fn)[-23:-4] for fn in dmp_fs]):
-            #convert string to datetime object. If issues with that log any errors with that and skip it
+            
+            #convert string to datetime object. If unable, log then skip it
             try:
                 my_dt = datetime.strptime(dt_str, self._dt_frmt)
             except ValueError:
                 self._log.warning(f"01: badfn={dmp_fs[i]} - dtstr={dt_str}")
                 continue
 
-            diff = datetime.now() - my_dt
-            dmp_str = str(dmp_fs[i])
+            #If that date is valid one to be kept then check to see if that is the latest BU from that day
+            if self._is_backup_date(my_dt, days, wks, mnths):
+                
+                day_as_str = my_dt.strftime("%y_%m_%d")
 
-            #if time is in the future then it's safe to delete that one, something has gone wrong and log it
-            if diff.days < 0:
-                self._log.debug(f"01: imposiblfn={dmp_str}")
-                print(f"impssible: {dmp_str}")
-                to_del.append(dmp_str)
+                #If no other BUs on that day, then add my_dt and file name in that spot 
+                if dates.get(day_as_str) is None:
+                    dates[day_as_str] = (my_dt, dmp_fs[i])
 
-            #if diff was over 1 day ago, then it's safe to remove
-            elif diff.days > 0: 
-                to_del.append(dmp_str)
-                print(f"too old {dmp_str}")
+                #If existing date is same or more recent than my_dt, then can delete file corresponding to my_dt
+                elif dates[day_as_str][0] >= my_dt:
+                    to_del.append(dmp_fs[i])
 
-        self._log.debug(f"0: del={"/t".join(to_del)}")
-        print(to_del)
+                #If my_dt is newer than the datetime already in the dict, swap it with my_dt and cooreponding file and add the old one to the delete list
+                elif dates[day_as_str][0] < my_dt:
+                    to_del.append(dates[day_as_str][1])
+                    dates[day_as_str] = (my_dt, dmp_fs[i])
+
+            #If date is not one that should have it's backup saved, then just delete it
+            else:
+                to_del.append(dmp_fs[i])
         
+        #log fns to delete and BUs
+        self._log.info(f"0 del={to_del} - bus={[each[1] for each in dates.values()]}")
+
+        #Go through each of the fns to delete and delete them
         for f_path in to_del:
             try:
                 os.remove(f_path)
             except OSError:
                 self._log.warning(f"02: cntdel={f_path}")
-                pass
