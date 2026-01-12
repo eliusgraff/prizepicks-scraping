@@ -700,28 +700,6 @@ class prizepicks_scheduler:
 
         except KeyError:
             self.trace_log.warning(f"02: ntfnd={name}")
-
-    #Function to take a json object and send it to a text file - usually for debugging
-    def _json_snap(self, prefix, data):
-        raise NotImplementedError
-        #correlate the error to the dump
-        fn = self._create_snap_fn(prefix)
-        with open(fn,"w") as json_file:
-            json.dump(data, json_file, indent=4)
-        self.trace_log.debug(f"0: fn={fn}")
-        return fn
-
-    def _exc_snap(self, prefix, e, traceback):
-        raise NotImplementedError
-        #Function to take in an exception object and send it to a text file for logging and review purposes
-        fn = self._create_snap_fn(prefix)
-        with open(fn,"w") as f:
-            f.write(f"{e.__class__.__name__}\n")
-            f.write(f"{e}\n")
-            f.write(traceback) # Get the formatted traceback string
-
-        self.trace_log.debug(f"0: fn={fn}")
-        return fn
     
     #Function Executed when mysql backup is time to be created
     def _create_mysql_backup(self):
