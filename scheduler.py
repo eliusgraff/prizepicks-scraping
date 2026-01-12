@@ -41,23 +41,20 @@ class prizepicks_scheduler:
     _stop_loop = False #bool to track whether the scheduler loop is going or not. Allows for programatic way to kill the loop from parent thread
     is_asleep = False #bool to track whether the scheduler loop is sleeping in between api polls or is processing data
     
-    '''---Uncomment these---'''
     known_leagues = [
         "NFL",
         "CFB",
-        #"MLB",
-        #"WNBA",
-        #"Soccer",
-        #"NBA",
+        "MLB",
+        "WNBA",
+        "Soccer",
+        "NBA",
         "NHL",
-        #"TENNIS"
+        "TENNIS"
     ]
 
     default_req_rate = FIVE_MINS
     min_req_rate = ONE_DAY
-    
-    '''---Need to change this back to be ONE_MIN---'''
-    max_req_rate = FIVE_MINS
+    max_req_rate = ONE_MIN
 
     #Dictionary to keep track of all of the non-essential 'background' activities that happen and the rate at which they should be scheduled
     background = {
@@ -84,7 +81,6 @@ class prizepicks_scheduler:
 
     #Constructor for the scheduler class. 
     def __init__(self):
-        input("THIS IS A DEVELOPMENT VERSION, BEFORE PUSHONG PLEASE UPDATE THE MEMBER VARIABLES BEFORE PRODUCTION ENVIRONMENT")
         print("Setting up Scheduler class...")
         #Set up loggers
         self._create_loggers()
