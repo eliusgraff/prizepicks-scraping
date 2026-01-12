@@ -5,3 +5,4 @@ logs
 old_sql_schemas
 scheduler_file.pkl
 tstng.py
+debug

@@ -3,6 +3,7 @@ from my_logs import log_perf
 import os
 import logging
 from logging.handlers import RotatingFileHandler
+from datetime import datetime as dt
 
 ###Code which runs when this module is imported###
 log_path = os.path.join(os.path.dirname(__file__),"logs")
@@ -31,7 +32,7 @@ def parse_webpage(json_data, pp_db):
     #Parsing the data tags will return a list of values to coorespond to each of the values in the 'data_order' list. Before adding it all into the mySQL db.
     
     #Get the json data from the raw html
-
+    global LOG
     col_orders = pp_db.get_data_to_parse()
     proj_order = col_orders['projection']
     #Define large data structure where all the parsed data will reside until it is sent to mySQL
@@ -39,6 +40,10 @@ def parse_webpage(json_data, pp_db):
         data_values = parse_proj_json(json_data, proj_order)
     except Exception as e:
         raise debug_exc(e, "1", {"json":json_data, "prj_ordr":proj_order}, "PARSER")
+    except ValueError as ve:
+        #error when parsing valid json
+        LOG.warning(f"2: fn - {dt.now().strftime('%Y-%m-%d_%H-%M-%S')}")
+        raise debug_exc(ve, "02",{"json":json_data,})
     
     try:
         includes = parse_included_data(json_data.get("included"), col_orders)

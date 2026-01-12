@@ -1,16 +1,17 @@
 import prizepicks_db
 import web_scraper
+import my_parser
+from utils import debug_exc
+import error_handler
 import os
 import pickle
 from datetime import datetime, timezone, timedelta
 import threading
 import time
-import my_parser
 import bisect
 import logging
 from logging.handlers import RotatingFileHandler
 import json
-from utils import debug_exc
 from threading import Thread #enumerate - Need to import this as something else since enumerate is a funciton in the python standard library and this conflicts with that
 import traceback
 import subprocess
