@@ -97,16 +97,14 @@ class prizepicks_db:
         
         #create path for log files to go
         self._log_path = os.path.join(os.path.dirname(__file__),"logs")
-        file_handler_path = os.path.join(self._log_path,".log")
-
         if not os.path.isdir(self._log_path): 
             os.mkdir(self._log_path)
 
-        #Set up stats logger
-        stats_logname = f"{__name__}_stats"
-        self._log = logging.getLogger(stats_logname)
+        #Set up calss's logger
+        logname = "prizepicks_db"
+        self._log = logging.getLogger(logname)
         self._log.setLevel("INFO")
-        stats_file_handler = RotatingFileHandler(file_handler_path, maxBytes=5000000, backupCount=1)
+        stats_file_handler = RotatingFileHandler(os.path.join(self._log_path, f"{logname}.log"), maxBytes=5000000, backupCount=1)
         stats_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
         self._log.addHandler(stats_file_handler)
 
@@ -459,14 +457,16 @@ class prizepicks_db:
                 self._log.critical(f"1: qry={delete_query} - err={sql_err.__class__.__name__} - msg={sql_err.msg}")
                 raise debug_exc(sql_err, "1", {"qry":delete_query}, "PPDB")
 
+        log_msg = ""
+
         #Goes through and add in all the latest row data to the target table
         if len(my_data_list) > 0:
 
             #call function to insert the data list into the table_name
             self._insert_many_rows(table_name, my_data_list)
 
-            #log however many rows were added to which table
-            self._log.info(f"0: add={len(my_data_list)} - tbl={table_name}")
+            #add num rows added to which table name to the log message to be added at end of function
+            log_msg += f"{table_name}:{len(my_data_list)} - "
 
         #All of the changes to the projections are tracked. This block adds the changed attributes and values into the table tracking the history of the changes
         if len(data_history_list) > 0:
@@ -486,12 +486,11 @@ class prizepicks_db:
                 raise debug_exc(sql_err, "3", {"qry":history_write_query, "dta_lst":data_history_list}, "PPDB")
 
             #log however many rows were added to which table
-            self._log.info(f"0: add={len(data_history_list)} - tbl={table_name}")
-            
+            log_msg += f"{table_name}_change_history:{len(my_data_list)} - "
+
         #Some of the projection attributes are expected to change all the time. Rather than keep changing the whole projection record every time, these
         #values are tracked/stored in this timeseries table and the latest values are alwyas inserted in here. This does not check if that value has changed
         #at all, it just adds it no matter what
-
         if len(timeseries_list) > 0:
 
             #Create the SQL query to format and insert the data into the db
@@ -509,8 +508,9 @@ class prizepicks_db:
                 raise debug_exc(sql_err, "4", {"qry":ts_write_query, "dta_lst":timeseries_list}, "PPDB")
 
             #log however many rows were added to which table
-            self._log.info(f"0: add={len(timeseries_list)} - tbl={table_name}")
+            log_msg += f"{table_name}_timeseries:{len(timeseries_list)} - "
 
+        self._log.info(f"0: {log_msg[:-3]}")
         return True
     
     def _report_sql_error(self, error, query, rows):

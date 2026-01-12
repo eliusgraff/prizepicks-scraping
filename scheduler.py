@@ -58,7 +58,7 @@ class prizepicks_scheduler:
 
     #Dictionary to keep track of all of the non-essential 'background' activities that happen and the rate at which they should be scheduled
     background = {
-        "sts":ONE_DAY,
+        "sts":SIX_HOURS,
         "dmp_sch":TEN_MINS,
         "bu":ONE_DAY,
         "archive":TWELVE_HOURS
@@ -108,7 +108,7 @@ class prizepicks_scheduler:
         stats_logname = f"{__name__}_stats"
         self.stats_log = logging.getLogger(stats_logname)
         self.stats_log.setLevel("INFO")
-        stats_file_handler = RotatingFileHandler(os.path.join(self.log_path,f"{stats_logname}.log"), maxBytes=5000000, backupCount=3)
+        stats_file_handler = RotatingFileHandler(os.path.join(self.log_path,f"{stats_logname}.log"), maxBytes=1000000, backupCount=1)
         stats_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
         self.stats_log.addHandler(stats_file_handler)
 
@@ -116,7 +116,7 @@ class prizepicks_scheduler:
         sched_logname = f"{__name__}_sched"
         self.sched_log = logging.getLogger(sched_logname)
         self.sched_log.setLevel("INFO")
-        sched_log_file_handler = RotatingFileHandler(os.path.join(self.log_path,f"{sched_logname}.log"), maxBytes=5000000, backupCount=3)
+        sched_log_file_handler = RotatingFileHandler(os.path.join(self.log_path,f"{sched_logname}.log"), maxBytes=2000000, backupCount=1)
         sched_log_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
         self.sched_log.addHandler(sched_log_file_handler)
 
@@ -124,7 +124,7 @@ class prizepicks_scheduler:
         trace_logname = f"{__name__}_trace"
         self.trace_log = logging.getLogger(trace_logname)
         self.trace_log.setLevel("INFO")
-        trace_log_file_handler = RotatingFileHandler(os.path.join(self.log_path,f"{trace_logname}.log"), maxBytes=5000000, backupCount=3)
+        trace_log_file_handler = RotatingFileHandler(os.path.join(self.log_path,f"{trace_logname}.log"), maxBytes=1000000, backupCount=1)
         trace_log_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
         self.trace_log.addHandler(trace_log_file_handler)
 
@@ -132,10 +132,11 @@ class prizepicks_scheduler:
         err_logname = f"{__name__}_err"
         self.err_log = logging.getLogger(err_logname)
         self.err_log.setLevel("INFO")
-        err_log_file_handler = RotatingFileHandler(os.path.join(self.log_path,f"{err_logname}.log"), maxBytes=5000000, backupCount=3)
+        err_log_file_handler = RotatingFileHandler(os.path.join(self.log_path,f"{err_logname}.log"), maxBytes=500000, backupCount=1)
         err_log_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(funcName)s - %(message)s'))
         self.err_log.addHandler(err_log_file_handler)
 
+    #Function to save data associated with the scheduler's queuing
     def _save_queue_data(self):
         #Sending queue and request rates to a file so that they can be loaded next time the class is instantiated.
         with open(self.scheduler_filename, 'wb') as scheduler_file:
@@ -223,17 +224,17 @@ class prizepicks_scheduler:
                 #Next scheduled time for this command is not valid, then reschedule based on polling rate
                 if sec_to_exec > self.min_req_rate:
                     self.err_log.warning(f"06: {each}")
-                    self.cmd_q[i][0] = datetime.now(timezone.utc) + timedelta(seconds=self.schedule_rates[cmd_type])
+                    self.cmd_q[i] = (datetime.now(timezone.utc) + timedelta(seconds=self.schedule_rates[cmd_type]), self.cmd_q[i][1])
 
             elif cmd_type in self.background:
 
                 #Since this will only ever poll at constant rate, just set it, who cares what was in the file                
                 self.schedule_rates[cmd_type] = self.background[cmd_type]
 
-                #If next scheduled time is invalid, then just change it to be valid!
+                #If next scheduled time is invalid, then just set it to a valid one
                 if sec_to_exec > self.background[cmd_type]:
                     self.err_log.warning(f"08: {each}")
-                    self.cmd_q[i][0] = datetime.now(timezone.utc) + timedelta(seconds=self.schedule_rates[cmd_type])
+                    self.cmd_q[i] = (datetime.now(timezone.utc) + timedelta(seconds=self.schedule_rates[cmd_type]), self.cmd_q[i][1])
             
             #If we get here, then we know it was legit and remove from remaining_items
             remaining_items.remove(cmd_type)
@@ -600,7 +601,7 @@ class prizepicks_scheduler:
         return True
     
     #Function to handle and track db-realted errors
-    '''---Still much work to be done here, but most of the erros are already fixed elsewhere so not urgent to fic this---'''
+    '''---Still much work to be done here, but most of the erros are already fixed elsewhere so not urgent to fix this---'''
     def _dbe_handler(self, dbe, cmd_type, type_errs, consec_errs):
         '''
         Eventually, if the problem is just related to the single cmd_type then we need to just evict it from the q or set it to lowest
