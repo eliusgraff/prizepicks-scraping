@@ -2,7 +2,7 @@ import prizepicks_db
 import web_scraper
 import my_parser
 from utils import debug_exc
-import error_handler
+from circular_buffer import circular_buffer
 import os
 import pickle
 from datetime import datetime, timezone, timedelta
@@ -80,14 +80,22 @@ class prizepicks_scheduler:
 
     _bu_thread = Thread() # Thread object which will be managing the occasional backups in the background. I will only allow one singe backup thread at a time, so this will help enforce that
 
+    _cmd_errs = dict()
+    _LOOK_BACK = 5
+    _data_errs = list()
+    _bg_errs = list()
+
+
     #Constructor for the scheduler class. 
     def __init__(self):
         print("Setting up Scheduler class...")
-        #Set up loggers
+
         self._create_loggers()
         self.trace_log.critical("INIT")
-        self.create_queue()     
+
+        self._create_queue()     
         self._log_q_status()
+        self._setup_error_counters()
 
     #Destructor for class
     def __del__(self):
@@ -95,10 +103,21 @@ class prizepicks_scheduler:
         self._save_queue_data()
         self.trace_log.info("DEL")
 
+    #Set up dictionary to track command success/failure history for error handling
+    def _setup_error_counters(self):
+
+        #Create buffers to track statuses for last _LOOK_BACK number of commands by command type
+        for league in self.known_leagues:
+            self._cmd_errs[league] = circular_buffer(self._LOOK_BACK, True)
+        for cmd in self.background:
+            self._cmd_errs[cmd] = circular_buffer(self._LOOK_BACK, True)
+
+        #Create buffers to keep track of last _LOOK_BACK number of data and background commands executed splitting these up so the bg and data commands can have different fixes
+        self._data_errs = circular_buffer(self._LOOK_BACK, True)
+        self._bg_errs = circular_buffer(self._LOOK_BACK, True)
+
     #Function to create loggers for the scheduler class. 
     def _create_loggers(self):
-        #2 logers are created, one to keep track of the stats of the DB so the size can be 
-        #monitored over time and one to keep track of any error which may occur during operation
 
         '''---Need to find a logical way to decide how large these logs are allowed to be---'''
         #Make sure that the logs directory exists, if not, make it
@@ -145,7 +164,7 @@ class prizepicks_scheduler:
             pickle.dump(q_status, scheduler_file)
 
     #function to make sure valid queue is in the scheduler before execution begins
-    def create_queue(self):
+    def _create_queue(self):
         #Load in queue data from a file if it exists, otherwise create a default queue.
         if not os.path.isfile(self.scheduler_filename):
             print("Cant load schedule file, setting default")
@@ -507,15 +526,11 @@ class prizepicks_scheduler:
             slp_msg = f"slp: {sleep_time}sec"
             self.sched_log.info(slp_msg)
 
+    #this is the loop which will schedule the commands to be executed. This will run until the _stop_loop flag is set to true.        
     def _schedule_loop(self):
-        #this is the loop which will schedule the commands to be executed. This will run until the _stop_loop flag is set to true.        
 
         self._stop_loop = False
         min_time_to_wait = FIVE_SEC #Only poll so often to avoid spamming the API with requests
-        
-        #objects to keep track of how many error pop up and for which actions
-        consec_errs = 0
-        type_errs = {cmd: 0 for cmd in self.known_leagues + list(self.background)}
 
         #Starting scheduler loop
         self.trace_log.debug("0")
@@ -529,54 +544,24 @@ class prizepicks_scheduler:
             #Checking to see if it is time to execute the next command in the queue
             #execute next command if it is scheduled to be done before the next time the loop is supposed to wake up
             nxt_cmd = self.cmd_q[0]
+            cmd_name = nxt_cmd[1]
             my_delta = nxt_cmd[0] - datetime.now(timezone.utc)
             sec_to_exec = my_delta.total_seconds()
-            data = None
             exec_cmd = sec_to_exec < (self.loop_wakeup_time/2)
 
-            #execute command if it is time
+            #execute command if time to do so
             if exec_cmd:
 
-                cmd_type = nxt_cmd[1]
-                print(f"Executing cmd: {cmd_type}")
-            
-                #Get stats on db size
-                if cmd_type == 'sts':
-                    self._get_db_stats()
+                try:
+                    self._exec_cmd()
+                    self._cmd_errs[cmd_name].push_back(True)
+                    if nxt_cmd in self.background:
+                        self._bg_errs.push_back(True)
+                    else:
+                        self._data_errs.push_back(True)
 
-                #Dump mysql backup
-                elif cmd_type == 'bu':
-                    self._create_mysql_backup()
-
-                #move dynamic data from standard tables to archive tables
-                elif cmd_type == 'archive':
-                    self.archive_table_data()
-                
-                #if not dump scheduler command, then need to scrape prizepicks for data
-                elif cmd_type != 'dmp_sch':
-                    try:
-                        #Make API call to get data for a league
-                        data = self._scrape_prizepicks_data(cmd_type)
-                        
-                        #reset error counters if nothing went wrong
-                        consec_errs = 0
-                        type_errs[cmd_type] = 0
-
-                    #Rather than put all the handling code of all the exceptions in here, just do it all in a fucntion
-                    except debug_exc as dbe:
-                        self._dbe_handler(dbe, cmd_type, type_errs, consec_errs)
-                        continue
-
-                    #If raises exception not in dbe_exc then wrap it in that exception and raise it
-                    except Exception as e:
-                        raise debug_exc(e, "2", {"cmd":nxt_cmd}, "SCHEDULER")                 
-                
-                #Reschedule the command that just executed
-                self._update_queue(data)
-
-                #check to dump scheduler after it has been re-queued so that the first command executed after restart is not always a schedule dump again
-                if cmd_type == 'dmp_sch':
-                    self._save_queue_data()
+                except debug_exc as dbe:
+                    self._dbe_handler(dbe)
 
             #If woken up and nothing to do, then go right on back to sleep
             else:
@@ -601,6 +586,36 @@ class prizepicks_scheduler:
         self._stop_loop = False
         return True
     
+    #Logic to call correct function based on next command to execute
+    def _exec_cmd(self):
+
+        nxt_cmd = self.cmd_q[0]
+        cmd_type = nxt_cmd[1]
+        print(f"Executing cmd: {cmd_type}")
+    
+        #Get stats on db size
+        if cmd_type == 'sts':
+            self._get_db_stats()
+
+        #Dump mysql backup
+        elif cmd_type == 'bu':
+            self._create_mysql_backup()
+
+        #move dynamic data from standard tables to archive tables
+        elif cmd_type == 'archive':
+            self.archive_table_data()
+        
+        #if not dump scheduler command, then need to scrape prizepicks for data
+        elif cmd_type != 'dmp_sch':
+            data = self._scrape_prizepicks_data(cmd_type)
+                                 
+        #Reschedule the command that just executed
+        self._update_queue(data)
+
+        #check to dump scheduler after it has been re-queued so that the first command executed after restart is not always a schedule dump again
+        if cmd_type == 'dmp_sch':
+            self._save_queue_data()
+    
     #Function to handle and track db-realted errors
     '''---Still much work to be done here, but most of the erros are already fixed elsewhere so not urgent to fix this---'''
     def _dbe_handler(self, dbe, cmd_type, type_errs, consec_errs):
@@ -614,13 +629,14 @@ class prizepicks_scheduler:
 
         #If the error is a timeout in getting the prizepicks api, it likely just means that internet connection was bad for a bit, so 
         #just going to wait 5 min and try again
-        '''---Eventually will need to add support for this I think since the curl commands do time out from time to time---'''
-        '''
-        if isinstance(dbe.exc, Timeout):
-            self._handle_timeout(cmd_type, type_errs, dbe, consec_errs)
-            reschedule = False
-            dump_any = False
-        '''
+        
+        '''---API_ERROR_HANDER WORK!!! pickup here to add the error to the lists tracking command success---'''
+        '''self._cmd_errs[nxt_cmd].push_back(True)
+        if nxt_cmd in self.background:
+            self._bg_errs.push_back(True)
+        else:
+            self._data_errs.push_back(True)'''
+        '''---end of the error tracking code---'''
 
         print(f"Found exception while scraping pp. Logging this error. Counts:\n{consec_errs}\n{type_errs}")
         consec_errs += 1
@@ -725,6 +741,7 @@ class prizepicks_scheduler:
         def __init__(self, caller_queue, caller_rates):
             self.queue = caller_queue
             self.rates = caller_rates
+
 
 #Main function which creates scheduler object and runs it
 if __name__ == "__main__":
