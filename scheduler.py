@@ -66,6 +66,7 @@ class prizepicks_scheduler:
     }
 
     loop_wakeup_time = FIFTEEN_SEC #how often the loop should wake up to check for new requests
+    min_time_to_wait = FIVE_SEC #Set limit on how often to poll to avoid spamming the API with requests
 
     stats_log = None # logger object for db stats logging
     sched_log = None # logger object for scheduler logging
@@ -73,8 +74,6 @@ class prizepicks_scheduler:
     trace_log = None # logger object for tracing command flow of the project
     log_path = os.path.join(os.path.dirname(__file__),"logs")
 
-    parse_errors = 0 # counter for how many consecutive parser errors are seen
-    parse_errtype = dict() # dict to keep track of consec parse errors on a by-league basis
     SNAP = 3 # number of allowable consecutive errors before a snapshot is taken of the api response
     ABORT = 5 # number of allowable consecutive errors before the scheduler will kill itself and stop making requests
 
@@ -84,7 +83,6 @@ class prizepicks_scheduler:
     _LOOK_BACK = 5
     _data_errs = list()
     _bg_errs = list()
-
 
     #Constructor for the scheduler class. 
     def __init__(self):
@@ -415,7 +413,6 @@ class prizepicks_scheduler:
         #None can indicate 2 things: 1 that something went wrong and no data was parsed or 2 that there are in fact no upcoming games and the season
         #is over or no bets are available.
             #So not to overcompensate for the case of #1, will double the refresh time
-        '''There should be something added here, None is different than bad status and the scheduling logic should be different for those cases'''
         if game_data is None:
             self.schedule_rates[cmd_type] = min( self.schedule_rates[cmd_type]*2, self.min_req_rate )
             return (0,cmd_type,self.schedule_rates[cmd_type])
@@ -488,6 +485,7 @@ class prizepicks_scheduler:
         #Make sure there is data to check against, if not then no need to adjust frequencies. Also if the commands is just stats update, then that is 
         #done at constant interval so nothing to update
 
+        '''--- When would data possibly be none?---'''
         if data is not None and data not in self.background:
             #today the function only needs the game data, so just send what the fucntion needs
             ec = self._update_req_freq(cmd_type, data.included_tag_values.get('game'))
@@ -530,13 +528,12 @@ class prizepicks_scheduler:
     def _schedule_loop(self):
 
         self._stop_loop = False
-        min_time_to_wait = FIVE_SEC #Only poll so often to avoid spamming the API with requests
 
         #Starting scheduler loop
         self.trace_log.debug("0")
         while True:
 
-            #Check if loop is stopped by parent thread
+            #Check if stop flag is raised
             if self._stop_loop:
                 self.trace_log.info("00")
                 break
@@ -554,14 +551,17 @@ class prizepicks_scheduler:
 
                 try:
                     self._exec_cmd()
+
+                    #if command succeeds without exception, then add good status to data structures tracking errors
                     self._cmd_errs[cmd_name].push_back(True)
-                    if nxt_cmd in self.background:
+                    if cmd_name in self.background:
                         self._bg_errs.push_back(True)
                     else:
                         self._data_errs.push_back(True)
 
+                #if any exceptions are thrown, catch them and send to handler
                 except debug_exc as dbe:
-                    self._dbe_handler(dbe)
+                    self._dbe_handler(dbe, cmd_name)
 
             #If woken up and nothing to do, then go right on back to sleep
             else:
@@ -571,7 +571,7 @@ class prizepicks_scheduler:
             #Tell the loop to sleep until either the next wakeup time or the next command execution time.
             #I do put a limit on here that the loop will not sleep for less than 5 seconds, to avoid spamming the API or more than 15 seconds to avoid
             # situation where the loop cannot be cancelled by the caller.
-            sleep_time = min( self.loop_wakeup_time,max( min_time_to_wait,sec_to_exec ) )
+            sleep_time = min( self.loop_wakeup_time,max( self.min_time_to_wait,sec_to_exec ) )
             
             #To avoid spam, only log q status if something has been executed
             if exec_cmd: self._log_q_status(sleep_time)
@@ -616,69 +616,31 @@ class prizepicks_scheduler:
         if cmd_type == 'dmp_sch':
             self._save_queue_data()
     
-    #Function to handle and track db-realted errors
-    '''---Still much work to be done here, but most of the erros are already fixed elsewhere so not urgent to fix this---'''
-    def _dbe_handler(self, dbe, cmd_type, type_errs, consec_errs):
-        '''
-        Eventually, if the problem is just related to the single cmd_type then we need to just evict it from the q or set it to lowest
-        polling rate so that it doesnt keep clogging us up and doesnt stop everything else if that is all working properly
-        '''
-        
+    #Function to handle and track errors
+    def _dbe_handler(self, dbe, cmd_type):
+
         reschedule = True   #Sometimes statndard reschedule is not wanted, so this control the case where we don't want to do that
-        dump_any = True     #Set to True to take snapshot on every error, set to false if not
 
         #If the error is a timeout in getting the prizepicks api, it likely just means that internet connection was bad for a bit, so 
         #just going to wait 5 min and try again
         
         '''---API_ERROR_HANDER WORK!!! pickup here to add the error to the lists tracking command success---'''
-        '''self._cmd_errs[nxt_cmd].push_back(True)
-        if nxt_cmd in self.background:
-            self._bg_errs.push_back(True)
+        #Add bad status to the error trackers
+        self._cmd_errs[cmd_type].push_back(False)
+        
+        #Logic for handling errors for background commands
+        if cmd_type in self.background:
+            print(f"Found error while executing background command. Consec:\n{self._bg_errs.get_buffer()}\nType Errors:{self._cmd_errs[cmd_type].get_buffer()}")
+            self._bg_errs.push_back(False)
+        
+        #Logic for handling errors with data commands
         else:
-            self._data_errs.push_back(True)'''
-        '''---end of the error tracking code---'''
+            reschedule = self._handle_data_error(cmd_type, dbe)
 
-        print(f"Found exception while scraping pp. Logging this error. Counts:\n{consec_errs}\n{type_errs}")
-        consec_errs += 1
-        type_errs[cmd_type] += 1
-        self._cmd_err_handler(dbe, cmd_type, type_errs, consec_errs, dump_any)
-
-        if reschedule is True:
+        #Reschedule the command that last failed. Ignore dmp_sch since that command is rescheduled by the time it gets here
+        if reschedule is True and cmd_type != "dmp_sch":
             self._update_queue(None)
     
-    #Function to hanle logging and atttempt recovery from timeouts
-    def _handle_timeout(self, cmd_type, type_errs, dbe, consec_errs):
-        
-        #print to the console and all the relevant logs that the timeout occured, which command timed out and when it is rescheduled for
-        print(f"Found timeout in getting prizepicks API data, watiting 5 min to make next request. Counts:\n{consec_errs}\n{type_errs}")
-        new_time = datetime.now(timezone.utc) + timedelta(minutes=5)
-        err_msg = f'1: cmd={cmd_type} - nt={new_time.strftime("%Y-%m-%d %H:%M:%S")}'
-        self.sched_log.error(err_msg)
-        self.trace_log.error(err_msg)
-        self.err_log.error(err_msg)
-
-        #update the q so that the next command is not executed for another 5 min
-        self.cmd_q[0][0] = new_time
-
-        #update consec error counts and handle the error
-        consec_errs += 1
-        type_errs[cmd_type] += 1
-        self._cmd_err_handler(dbe, cmd_type, type_errs, consec_errs, dump = False)
-    
-    #function to log all debug saved for exceptions from process of making API call to loading in DB
-    def _cmd_err_handler(self, dbe, ct, te, ce, dump = True):
-        if dump is True:
-            fn = dbe.dump()
-        else:
-            fn = None
-
-        if ce > 3 or te[ct] > 3:
-            if dump is False :
-                fn = dbe.dump()
-            self.err_log.error(f"2222: ce={ce} - te={ct}:{te[ct]} - fn={fn}")
-            raise RuntimeError(f"Too many failed commands in a row. Last command executed = {ct}")
-        self.err_log.error(f"22: cmd={ct} - fn={fn}")
-
     #Function to get the size of the tables in the db and log them
     def _get_db_stats(self):
         #Function asked the db object what it's stats are, then logs them
@@ -691,8 +653,63 @@ class prizepicks_scheduler:
         self.stats_log.info(mystr)
         return True
     
+    #Logic for handling errors with data commands. Function returns whether the command needs to be rescheduled or not
+    def _handle_data_error(self, cmd_type, dbe):
+        
+        print(f"Found error while executing data command. Consec:\n{self._data_errs.get_buffer()}\nType Errors:{self._data_errs[cmd_type].get_buffer()}")
+        self._data_errs.push_back(False)
+        
+        #get number of recent errors to inform how extreme the recovery of those errors will be
+        errs = 0
+        for status in self._cmd_errs[cmd_type]:
+            if status is False:
+                errs += 1
+        
+        #If there is just the single error, then schedule the same command to try again the next time the loop wakes up
+        if errs == 1:
+            return False
+
+        #if more than one error, then back off the rate at which things are scheduled
+        elif errs < self._LOOK_BACK:
+            self.schedule_rates[cmd_type] = min( self.schedule_rates[cmd_type]*2, self.min_req_rate )
+
+        #if there are enough errors to justify a snapshot, then dump the exception
+        if errs >= self.SNAP:
+            dbe.dump()
+
+        #If the buffer is filled with errors, just set this command to be the minimum polling rate
+        if errs == self._LOOK_BACK:
+            self.schedule_rates[cmd_type] = self.min_req_rate
+
+        #Check and see how recent data commands are doing
+        errs = 0
+        for status in self._data_errs[cmd_type]:
+            if status is False:
+                errs += 1
+
+        #If all the recent commands are failures, then check all the leagues to see if any of them will execute correctly
+        if errs == self._LOOK_BACK and self._execute_scan() is False:
+            self._stop_loop = True
+            return False
+
+        return True
+
+    #Function which executes all data commands once, returns true if any of them succeed. False if none of them do
+    def _execute_scan(self):
+
+        for cmd in self.known_leagues:
+
+            time.sleep(self.min_time_to_wait)
+            try:
+                self._scrape_prizepicks_data(cmd)
+                return True
+            except Exception:
+                pass
+
+        return False
+
+    #utility funtion used for deleting certain commands out of the q. This will take in a name delete all commands with that name from the q
     def _purge_q(self, name):
-        #utility funtion used for deleting certain commands out of the q. This will take in a name delete all commands with that name from the q
 
         self.trace_log.critical(f"0: nm={name}")
         rmvd = False

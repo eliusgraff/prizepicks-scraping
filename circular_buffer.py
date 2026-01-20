@@ -15,7 +15,6 @@ class circular_buffer:
 
     #Function to add to front of buffer
     def push_back(self, item):
-
         #move head to next spot and put in new item
         self._adv_head()
         self._buffer[self._head] = item
@@ -29,3 +28,6 @@ class circular_buffer:
         self._head += 1
         if self._head == self._my_len:
             self._head = 0
+
+    def head(self):
+        return self._buffer[self._head]
