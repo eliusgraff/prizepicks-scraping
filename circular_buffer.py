@@ -25,9 +25,9 @@ class circular_buffer:
 
     #Move head to next spot in the buffer
     def _adv_head(self):
-        self._head += 1
-        if self._head == self._my_len:
-            self._head = 0
+        if self._head == 0:
+            self._head = self._my_len
+        self._head -= 1
 
     def head(self):
         return self._buffer[self._head]

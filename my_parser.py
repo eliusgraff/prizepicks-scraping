@@ -32,7 +32,6 @@ def parse_webpage(json_data, pp_db):
     #Parsing the data tags will return a list of values to coorespond to each of the values in the 'data_order' list. Before adding it all into the mySQL db.
     
     #Get the json data from the raw html
-    global LOG
     col_orders = pp_db.get_data_to_parse()
     proj_order = col_orders['projection']
     #Define large data structure where all the parsed data will reside until it is sent to mySQL
@@ -112,7 +111,6 @@ def parse_proj_json(json_data, order):
         my_data = parse_proj_data(item, order)
         data_values.append(my_data)
 
-    global LOG
     LOG.info(f"0: prjlen={len(data_values)}")
     return data_values
 
@@ -122,7 +120,6 @@ def parse_included_data(included_data, col_orders):
     #and leagues in the tag called 'included'. This data defines what the projection is (ie rushing vs passing yards), who the player is, what team 
     #they are on and so forth. The more data which can be collected the more predictions can be made based on the outcomes of the projections.
         
-    global LOG
     if included_data is None:
         LOG.info(f"000")
         return dict()

@@ -101,6 +101,7 @@ class prizepicks_scheduler:
         self._save_queue_data()
         self.trace_log.info("DEL")
 
+
     #Set up dictionary to track command success/failure history for error handling
     def _setup_error_counters(self):
 
@@ -171,7 +172,12 @@ class prizepicks_scheduler:
         
         #Load data from file and make sure it is valid
         else:
-            self._load_queue_data()
+            try:
+                self._load_queue_data()
+            #this is only needed for dev/debug purposes. Pickle doesn't like it when it tries to unpack
+            #from shell something it packed in a script. This workaround is acceptable for now I think.
+            except AttributeError:
+                self._create_default_queue()
             self._validate_queue()
 
     #load queue object from pickle file and validate it
@@ -289,7 +295,7 @@ class prizepicks_scheduler:
         for league in self.known_leagues:
             self.cmd_q.append((datetime.now(timezone.utc), league))
             self.schedule_rates[league] = self.default_req_rate
-        for cmd, rate in self.background:
+        for cmd, rate in self.background.items():
             self.schedule_rates[cmd] = rate
 
     #Function to stop the scheduler loop. 
@@ -484,8 +490,6 @@ class prizepicks_scheduler:
 
         #Make sure there is data to check against, if not then no need to adjust frequencies. Also if the commands is just stats update, then that is 
         #done at constant interval so nothing to update
-
-        '''--- When would data possibly be none?---'''
         if data is not None and data not in self.background:
             #today the function only needs the game data, so just send what the fucntion needs
             ec = self._update_req_freq(cmd_type, data.included_tag_values.get('game'))
@@ -506,6 +510,18 @@ class prizepicks_scheduler:
         bisect.insort(self.cmd_q, (datetime.now(timezone.utc) + timedelta(seconds=self.schedule_rates[cmd_type]), cmd_type))
         self.cmd_q.pop(0)
 
+        return True
+    
+    #Function to get the size of the tables in the db and log them
+    def _get_db_stats(self):
+        #Function asked the db object what it's stats are, then logs them
+        db_stats = self._db_obj.get_stats()
+
+        #Construct log message from the db stats retruned from the object
+        mystr = "tbszs(mb): "
+        for name, size in db_stats: mystr += f"{name}:{size}\t"
+
+        self.stats_log.info(mystr)
         return True
     
     #Function to move stable data from the more dynamic tables to archive tables after they are expected to quit changing
@@ -592,6 +608,7 @@ class prizepicks_scheduler:
         nxt_cmd = self.cmd_q[0]
         cmd_type = nxt_cmd[1]
         print(f"Executing cmd: {cmd_type}")
+        data = None
     
         #Get stats on db size
         if cmd_type == 'sts':
@@ -620,7 +637,7 @@ class prizepicks_scheduler:
     def _dbe_handler(self, dbe, cmd_type):
 
         reschedule = True   #Sometimes statndard reschedule is not wanted, so this control the case where we don't want to do that
-
+    
         #If the error is a timeout in getting the prizepicks api, it likely just means that internet connection was bad for a bit, so 
         #just going to wait 5 min and try again
         
@@ -630,82 +647,135 @@ class prizepicks_scheduler:
         
         #Logic for handling errors for background commands
         if cmd_type in self.background:
-            print(f"Found error while executing background command. Consec:\n{self._bg_errs.get_buffer()}\nType Errors:{self._cmd_errs[cmd_type].get_buffer()}")
-            self._bg_errs.push_back(False)
+            self.err_log.debug(f"handling {cmd_type} as bg")
+            reschedule = self._handle_bg_error(cmd_type, dbe)
         
         #Logic for handling errors with data commands
         else:
+            self.err_log.debug(f"handling {cmd_type} as data")
             reschedule = self._handle_data_error(cmd_type, dbe)
 
-        #Reschedule the command that last failed. Ignore dmp_sch since that command is rescheduled by the time it gets here
+        #Reschedule the command that last failed. Ignore dmp_sch since that command is already rescheduled by the time it gets here
         if reschedule is True and cmd_type != "dmp_sch":
+            self.err_log.debug(f"rescheduled cmd {cmd_type}")
             self._update_queue(None)
     
-    #Function to get the size of the tables in the db and log them
-    def _get_db_stats(self):
-        #Function asked the db object what it's stats are, then logs them
-        db_stats = self._db_obj.get_stats()
+    #Logic for handling when bg commands fail
+    def _handle_bg_error(self, cmd_type, dbe):
+        #Function simply looks at the last 5 bg commands executed as well as the last 5 of that same type that were executed, if either of those cases show all failures
+        #then crash the program
+        
+        #Add this bad status to the buffers
+        self._bg_errs.push_back(False)
 
-        #Construct log message from the db stats retruned from the object
-        mystr = "tbszs(mb): "
-        for name, size in db_stats: mystr += f"{name}:{size}\t"
+        #Count how many errors are in the buffers
+        bg_errs = self._get_num_false(self._bg_errs.get_buffer())
+        cmd_errs = self._get_num_false(self._cmd_errs[cmd_type].get_buffer())
 
-        self.stats_log.info(mystr)
+        print(f"Found error while executing background command. Consec:\n{self._bg_errs.get_buffer()}\nType Errors:{self._cmd_errs[cmd_type].get_buffer()}")
+        #Log incomming error to be handled and the existing set of cmds in the error buffers
+        self.err_log.warning(f"dbe_exec={dbe.exc} cmd_type={cmd_type}")
+        self.err_log.warning(f"dta_cmds={self._data_errs.get_buffer()} bg_cmds={self._bg_errs.get_buffer()}")
+        for each in self._cmd_errs: 
+            self.err_log.debug(f"\t{each} = {self._cmd_errs[each].get_buffer()}")
+
+        #If this is first instance, don't reschedule and just try same command again after wakeup
+        if cmd_errs == 1 or bg_errs == 1:
+            self.err_log.warning(f"Single Err, retrying {cmd_type}")
+            return True
+
+        #If there are enough errors recently, then take the snap
+        if bg_errs >= self.SNAP or cmd_errs >= self.SNAP:
+            self.err_log.warning(f"dbsfn {dbe.dump()}")
+            
+        #If buffer is just errors, then kill the loop
+        if bg_errs == self._LOOK_BACK and cmd_errs == self._LOOK_BACK:
+            self.err_log.critical(f"Stopping loop, errs = {bg_errs}")
+            self._stop_loop = True
+            return False
+            
         return True
-    
+        
     #Logic for handling errors with data commands. Function returns whether the command needs to be rescheduled or not
     def _handle_data_error(self, cmd_type, dbe):
         
-        print(f"Found error while executing data command. Consec:\n{self._data_errs.get_buffer()}\nType Errors:{self._data_errs[cmd_type].get_buffer()}")
         self._data_errs.push_back(False)
-        
-        #get number of recent errors to inform how extreme the recovery of those errors will be
-        errs = 0
-        for status in self._cmd_errs[cmd_type]:
-            if status is False:
-                errs += 1
-        
+        print(f"Found error while executing data command '{cmd_type}'. Consec:\n{self._data_errs.get_buffer()}\nType Errors:{self._cmd_errs[cmd_type].get_buffer()}")
+        #Log incomming error to be handled and the existing set of cmds in the error buffers
+        self.err_log.warning(f"dbe_exec={dbe.exc} cmd_type={cmd_type}")
+        self.err_log.warning(f"dta_cmds={self._data_errs.get_buffer()} bg_cmds={self._bg_errs.get_buffer()}")
+        for each in self._cmd_errs: 
+            self.err_log.debug(f"\t{each} = {self._cmd_errs[each].get_buffer()}")
+
+        #get number of errors in recent command and command type buffers
+        errs = self._get_num_false(self._cmd_errs[cmd_type].get_buffer())
+        data_errs = self._get_num_false(self._data_errs.get_buffer())
+
         #If there is just the single error, then schedule the same command to try again the next time the loop wakes up
         if errs == 1:
+            self.err_log.warning(f"Single Err, retrying {cmd_type}")
             return False
 
         #if more than one error, then back off the rate at which things are scheduled
         elif errs < self._LOOK_BACK:
+            self.err_log.warning(f"Backoff {self.schedule_rates[cmd_type]} -> {min( self.schedule_rates[cmd_type]*2, self.min_req_rate )}")
             self.schedule_rates[cmd_type] = min( self.schedule_rates[cmd_type]*2, self.min_req_rate )
 
-        #if there are enough errors to justify a snapshot, then dump the exception
+        #if there are enough errors to justify a snapshot, then dump the exception and log the fn
         if errs >= self.SNAP:
-            dbe.dump()
+            self.err_log.warning(f"dbsfn {dbe.dump()}")
 
         #If the buffer is filled with errors, just set this command to be the minimum polling rate
         if errs == self._LOOK_BACK:
+            self.err_log.warning(f"minr8 {cmd_type}")
             self.schedule_rates[cmd_type] = self.min_req_rate
 
-        #Check and see how recent data commands are doing
-        errs = 0
-        for status in self._data_errs[cmd_type]:
-            if status is False:
-                errs += 1
-
         #If all the recent commands are failures, then check all the leagues to see if any of them will execute correctly
-        if errs == self._LOOK_BACK and self._execute_scan() is False:
-            self._stop_loop = True
+        if data_errs == self._LOOK_BACK and self._execute_scan() is False:
+            
+            #If none of the commands execute correctly, then just go to a loop where only periodic scanning happens until good staus is restored
+            self.err_log.critical(f"failscn - enter dormant mode")
+            self._dormant_loop()
             return False
 
         return True
+    
+    #Function to check how many False are in the array
+    def _get_num_false(self, array):
+        errs = 0
+        for status in array:
+            if status is False:
+                errs += 1
+        self.err_log.debug(f"a={array} er={errs}")
+        return errs
+
+    #Loop which just performs a scan once an hour and returns true once a scan comes back with some good staus 
+    def _dormant_loop(self):
+        
+        while True:
+            print("Entered dormant scanning mode, sleeping for an hour before next scan")
+            time.sleep(ONE_HOUR)
+            if self._execute_scan() is True:
+                self.err_log.warning(f"good status restored - exiting scanning mode")
+                break
 
     #Function which executes all data commands once, returns true if any of them succeed. False if none of them do
     def _execute_scan(self):
 
+        print("Executing scan of all leagues to check for good status...")
+        self.err_log.critical(f"scn:")
         for cmd in self.known_leagues:
 
             time.sleep(self.min_time_to_wait)
             try:
                 self._scrape_prizepicks_data(cmd)
+                self.err_log.critical(f"\tcmd: {cmd} = PASS")
+                self.err_log.critical("********SCAN PASSED********")
                 return True
             except Exception:
-                pass
-
+                self.err_log.critical(f"\tcmd: {cmd} = FAIL")
+        
+        self.err_log.critical("********SCAN FAILED********")
         return False
 
     #utility funtion used for deleting certain commands out of the q. This will take in a name delete all commands with that name from the q
@@ -745,7 +815,7 @@ class prizepicks_scheduler:
         #Check to make sure there is not already a backup thread alive, if there is, then don't start a new one and log an error
         if self._bu_thread.is_alive():
             self.err_log.warning("01: CANNOT CREATE EXTRA BU THREAD")
-            return 1
+            raise debug_exc(Exception, "1", {"msg":"01: CANNOT CREATE EXTRA BU THREAD"})
         
         self._bu_thread = Thread(target = self._db_obj.create_sql_backup, args=(True,), daemon=True)
         self._bu_thread.start()
@@ -758,7 +828,6 @@ class prizepicks_scheduler:
         def __init__(self, caller_queue, caller_rates):
             self.queue = caller_queue
             self.rates = caller_rates
-
 
 #Main function which creates scheduler object and runs it
 if __name__ == "__main__":
@@ -780,9 +849,3 @@ if __name__ == "__main__":
             f.write("\n")
     
     del s
-    '''---temporary add---
-    command = ["sudo", "-S", "shutdown", "-h", "now"]
-
-    # Start the process and send the password followed by a newline
-    proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    stdout, stderr = proc.communicate(input=password + "\n")'''
