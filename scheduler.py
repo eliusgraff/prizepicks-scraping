@@ -62,7 +62,8 @@ class prizepicks_scheduler:
         "sts":SIX_HOURS,
         "dmp_sch":TEN_MINS,
         "bu":ONE_DAY,
-        "archive":TWELVE_HOURS
+        "archive":THREE_HOURS, #TWELVE_HOURS
+        "store_and_purge":THIRTY_MINS #FOUR_WEEKS
     }
 
     loop_wakeup_time = FIFTEEN_SEC #how often the loop should wake up to check for new requests
@@ -86,6 +87,8 @@ class prizepicks_scheduler:
 
     #Constructor for the scheduler class. 
     def __init__(self):
+
+        input("archive time needs to be moved back to 12 hours before prod")
         print("Setting up Scheduler class...")
 
         self._create_loggers()
@@ -526,8 +529,11 @@ class prizepicks_scheduler:
     
     #Function to move stable data from the more dynamic tables to archive tables after they are expected to quit changing
     def archive_table_data(self):
-
         self._db_obj.move_to_archive()
+
+    #Manage store and purge command
+    def store_and_purge(self):
+        self._db_obj.store_and_purge()
 
     #Function to log current status of the queue and how long the loop is going to sleep for
     def _log_q_status(self, sleep_time = None):
@@ -614,6 +620,10 @@ class prizepicks_scheduler:
         if cmd_type == 'sts':
             self._get_db_stats()
 
+        #Zip up all the old data in the db for storage and remove it from the database
+        if cmd_type == 'store_and_purge':
+            self.store_and_purge()
+
         #Dump mysql backup
         elif cmd_type == 'bu':
             self._create_mysql_backup()
@@ -642,6 +652,14 @@ class prizepicks_scheduler:
         #just going to wait 5 min and try again
         
         '''---API_ERROR_HANDER WORK!!! pickup here to add the error to the lists tracking command success---'''
+
+        #print key dbe stuff for easy debugging and immediate visibility
+        print(f"Exception found during execution of command '{cmd_type}':")
+        print(dbe.exc)
+        for key,value in dbe.data_dict.items():
+            print(f"{key}: {value}")
+        print("Going through recovery...")
+
         #Add bad status to the error trackers
         self._cmd_errs[cmd_type].push_back(False)
         
@@ -672,7 +690,7 @@ class prizepicks_scheduler:
         bg_errs = self._get_num_false(self._bg_errs.get_buffer())
         cmd_errs = self._get_num_false(self._cmd_errs[cmd_type].get_buffer())
 
-        print(f"Found error while executing background command. Consec:\n{self._bg_errs.get_buffer()}\nType Errors:{self._cmd_errs[cmd_type].get_buffer()}")
+        #print(f"Found error while executing background command. Consec:\n{self._bg_errs.get_buffer()}\nType Errors:{self._cmd_errs[cmd_type].get_buffer()}")
         #Log incomming error to be handled and the existing set of cmds in the error buffers
         self.err_log.warning(f"dbe_exec={dbe.exc} cmd_type={cmd_type}")
         self.err_log.warning(f"dta_cmds={self._data_errs.get_buffer()} bg_cmds={self._bg_errs.get_buffer()}")

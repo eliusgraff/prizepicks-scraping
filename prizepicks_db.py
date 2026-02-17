@@ -8,6 +8,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import traceback
 import subprocess
+import shutil
 from pathlib import Path
 
 #Helper class to help with holding data for many to many relationships. To compare and decide what needs to be updated
@@ -70,7 +71,8 @@ class prizepicks_db:
         self._config = utils.get_secret("mysql")
         self._create_log()
         self._set_archive_path()   
-        self.compare_sql_schema()
+        input("Ignoring schema checking for development. Also, need to fix the duration of archive in send to archive function before going to prod")
+        #self.compare_sql_schema()
         self._sql_conn = self._create_db_connection()
         self._sql_cursor = self._sql_conn.cursor()
         self._set_external_data_names()        
@@ -145,22 +147,22 @@ class prizepicks_db:
         #If no db name is passed in, then they are all loaded in from secrets file
         if db_name is None:
             creds = self._config
-            db_name = creds['db_name']
+            self._db_name = creds['db_name']
             host_name = creds['hn']
             user_name = creds['un']
             user_password = creds['pw']
 
-        print(f"Connecting to '{db_name}' DB")
+        print(f"Connecting to '{self._db_name}' DB")
 
         connection = mysql.connector.connect(
             host=host_name,
             user=user_name,
             passwd=user_password,
-            database=db_name
+            database=self._db_name
         )
 
         #MySQL Database connection successful
-        self._log.info(f"0: db={db_name}")
+        self._log.info(f"0: db={self._db_name}")
         return connection
 
     #Function called by app manager to send the parsed data to the local mySQL database
@@ -302,7 +304,7 @@ class prizepicks_db:
         #Pull in all the data from the DB for the interested timeseries and turn it into a dict
         my_q =f"""
         SELECT * 
-        FROM projection_timeseries 
+        FROM projection_timeseries_archive 
         WHERE projection_id in ({','.join([str(proj_id) for proj_id in proj_ids])}) 
         ORDER BY parsenum DESC;
         """
@@ -650,7 +652,7 @@ class prizepicks_db:
         print("\tGetting parse data from the DB")
         for i in range(nums):
 
-            parse_data = self.read_query(f"SELECT * FROM projection_timeseries WHERE parsenum = {id_list[i][0]}")
+            parse_data = self.read_query(f"SELECT * FROM projection_timeseries_archive WHERE parsenum = {id_list[i][0]}")
             for row in parse_data:
 
                 kn = f"{row[0]}_{row[1]}"
@@ -658,7 +660,7 @@ class prizepicks_db:
                 if temp_series is None:
                     pre_dict[kn] = [row[2]]
                 else:
-                    '''---To make code back to the way it was, remove this if/else satetmtn'''
+                    '''---To make code back to the way it was, remove this if/else statement'''
                     temp_series.append(row[2])
 
         return pre_dict
@@ -822,48 +824,61 @@ class prizepicks_db:
         self._db_name = self._config['db_name']
         return True
 
-    #Function to move cold data to archive tables for the colder data
+    #Move all data from hot tables to archive tables
     @log_perf
-    def move_to_archive(self):
+    def move_to_archive(self):        
+        
+        #There are 3 tables that have 'hot' data and need to have that hot data moved to archive after it becomes
+        #cold. The tables are game, projection, and projection_timeseries.
 
-        hot_tables = ['projection'] #List of tables where many changes are expected to be made, stored in smaller tables
-        criteria = 6 #number of hours old a game has to be to be eligible for archive
+        criteria = 6   #assume that any game that started 6 hrs ago must be done now
 
-        #Get all the ids of games that started more than critera # of hours ago
-        game_id_query = f"SELECT id FROM game WHERE start_time < NOW() - INTERVAL {criteria} HOUR"
-        id_list = self.read_query(game_id_query)
-        gm2mv = len(id_list)
-        self._log.info(f"0: gm2mv={gm2mv} interv={criteria}")
+        #Get ids of games that started over 6 hours ago (so they should be moved to archive)
+        game_id_query = f"SELECT external_game_id FROM game WHERE start_time < NOW() - INTERVAL {criteria} HOUR"
+        gid_list = self.read_query(game_id_query)
+        #print(game_id_query)
+        #print(gid_list)
 
-        #if no game ids to move then just return
-        if gm2mv == 0: 
+        #If no games to move, return
+        if len(gid_list) == 0:
             self._log.info("00 msg=no games to move")
             return
         
-        '''---Should revisit how many hot tables there are and if all this code really needs to be here---'''
-        #go through each of the hot tables and move all rows where game_id is in the list of game ids needed to be moved
-        for table_name in hot_tables:
+        #Copy game data to archive and delete from hot table
+        gid_list = ', '.join([f"'{gid[0]}'" for gid in gid_list])
+        game_mv_cmd = f"INSERT IGNORE INTO game_archive SELECT * FROM game WHERE external_game_id IN ({gid_list})"
+        #print(game_mv_cmd)
+        game_del_cmd = f"DELETE FROM game WHERE external_game_id IN ({gid_list})"
+        self._sql_cursor.execute(game_mv_cmd)
+        self._sql_cursor.execute(game_del_cmd)
+        self._log.info(f"02: gmsmvd={self.read_query("SELECT ROW_COUNT()")[0][0]}")
 
-            #set up the column names and list of ids that need to be moved
-            col_name = 'id' if table_name == 'game' else 'game'
-            ids = ','.join([str(data_id[0]) for data_id in id_list])
 
-            #SQL commands to insert existing data into the archive table and delete it from the hot one
-            copy_cmd = f"INSERT IGNORE INTO {table_name}_archive SELECT * FROM {table_name} WHERE {col_name} IN ({ids})"
-            delete_query = f"DELETE FROM {table_name} WHERE {col_name} IN ({ids})"
-            self._sql_cursor.execute(copy_cmd)
-            '''
-            There is possibility where if code gets stopped before below line is completed then DB is left in a bad state and primary keys
-            will be violated in the next pass. 
-            '''
-            self._sql_cursor.execute(delete_query)
+        projection_id_query = f"SELECT id FROM projection WHERE game_id IN ({gid_list})"
+        #print(projection_id_query)
+        pid_list = self.read_query(projection_id_query)
+        #print(pid_list)
 
-            rownum = self.read_query("SELECT ROW_COUNT()")
-            self._log.info(f"0: gmsmvd={rownum[0][0]}")
-        
-        #lock in above changes made
+        #If not projections to move, return (though this would be really unexpected to me)
+        if len(pid_list) == 0:
+            self._log.warning(f"01: msg=no projections to move - gmsmvd={len(gid_list)}")
+            return
+
+        #Copy projection data to archive and delete from hot table
+        pid_list = ', '.join([str(pid[0]) for pid in pid_list])
+        proj_id_cp_cmd = f"INSERT IGNORE INTO projection_archive SELECT * FROM projection WHERE id IN ({pid_list})"
+        proj_id_del_cmd = f"DELETE FROM projection WHERE id IN ({pid_list})"
+        #print(proj_id_cp_cmd)
+        self._sql_cursor.execute(proj_id_cp_cmd)
+        self._sql_cursor.execute(proj_id_del_cmd)
+        self._log.info(f"03: prjmvd={self.read_query("SELECT ROW_COUNT()")[0][0]}")
+
+        #Move the timeseries data associated with all projections from those games from hot -> archive
+        proj_ts_cpy = f"INSERT INTO projection_timeseries_archive SELECT * FROM projection_timeseries WHERE projection_id IN ({pid_list})"
+        proj_ts_del = f"DELETE FROM projection_timeseries WHERE projection_id IN ({pid_list})"
+        self._sql_cursor.execute(proj_ts_cpy)
+        self._sql_cursor.execute(proj_ts_del)
         self._sql_conn.commit()
-        return
 
     #Creates a backup of the full mysql db with mysqldump and zips it up for backup purposes
     @log_perf
@@ -982,3 +997,93 @@ class prizepicks_db:
                 os.remove(f_path)
             except OSError:
                 self._log.warning(f"02: cntdel={f_path}")
+
+    #Function to backup old data from the database, zip it up, then delete data from the current mysql tables
+    def store_and_purge(self):
+        #This will store all old data in the db in a zip file and then delete it from the db. To reconstruct full database one would have to string together all the stores
+        #which is not ideal, but this will keep daily backup time roughly constant and if someone wants to go look at old data, then they can just pick the months they want
+        #to pull in rather than deal with the whole thing
+
+        #Function gets all the external_game_ids that are over some number of days old (30 for now)
+        #Use the game id's to get all the projections associated with those old games
+        #Get all ids of 'combo' players and pull their team ids
+        #Use the combo team ids to dump all the 'combo' teams as well (since I'm not really sure those ever get re-used, no need to keep them in the database)
+        #Use mysqldump to dump the gamee and projecttion data which matches the info collected above
+
+
+        #list of table needed to be stored then purged: ["game_archive", "projection_archive", "projection_change_history", "projection_timeseries", "scrape_data", "new_player", "team"]
+        days = 30
+        gid_list = self.read_query(f"SELECT external_game_id FROM game_archive WHERE start_time < NOW() - INTERVAL {days} DAY")
+        
+        #this should really not happen but don't think it will directly crash the program
+        if len(gid_list) == 0:
+            self._log.warning("1: no old games to purge")
+            return
+
+        #Turn game id list into string to send to next mysql command
+        gid_list = ', '.join([f"'{gid[0]}'" for gid in gid_list])
+        prj_id_list = self.read_query(f"SELECT id FROM projection_archive WHERE game_id IN ({gid_list})")
+        
+        #this should really not happen but don't think it will directly crash the program
+        if len(prj_id_list) == 0:
+            self._log.warning("2: no old projections to purge")
+            return
+        
+        #Turn projection id list into string to send to future sql command
+        prj_id_list = ', '.join([f"'{prj_id[0]}'" for prj_id in prj_id_list])
+        base_cmd = f"mysqldump -u root --password={self._config['pw']} {self._db_name}"
+
+        where_clauses = {
+            "game_archive": f"start_time < NOW() - INTERVAL {days} DAY",
+            "projection_archive": f"game_id IN ({gid_list})",
+            "projection_change_history": f"projection_id IN ({prj_id_list})",
+            "projection_timeseries": f"projection_id IN ({prj_id_list})",
+            "scrape_data": f"store_time < NOW() - INTERVAL {days} DAY",
+            "new_player": "combo = 1",
+            "team": "id IN (SELECT DISTINCT team_id FROM new_player WHERE combo = 1 AND name NOT LIKE '%+%')"
+        }
+
+        #Make sure target directory is empty
+        dir_name = f"store_{datetime.now().strftime(self._dt_frmt)}"
+        if os.path.exists(dir_name):
+            raise debug_exc(ValueError,"3",{"dir_name":dir_name, "msg":"Target directory already exists"})
+
+        #make sure zip file doesn't already exist
+        zp_fn = f"{dir_name}.tar.gz"
+        if os.path.exists(zp_fn):
+            raise debug_exc(ValueError,"3",{"dir_name":zp_fn, "msg":"Target zip already exists"})
+        os.makedirs(dir_name)
+
+        #Execute mysql dump commands for each table and send them to files in store directory
+        #Using --single-transaction for InnoDB ensures a consistent backup without locking tables.
+        #To lock tables during export (blocking writes), use --lock-tables instead.
+        base_cmd += " --single-transaction --quick"
+        for table, where_clause in where_clauses.items():
+            cmd = f"{base_cmd} {table} --where=\"{where_clause}\" > \"{dir_name}/{table}_snapshot\".sql"
+            try:
+                subprocess.run(cmd, shell=True, check=True)
+                self._log.info(f"0: msg=store complete table={table}")
+            except subprocess.CalledProcessError as e:
+                self._log.critical(f"1: failed dump for table {table}")
+                print(f"store command {cmd} failed with error code {e.returncode}")
+                print(f"Stderr: {e.stderr}")
+                raise debug_exc(e,"1",{"cml":cmd, "stderr":e.stderr})
+
+        #Zip up the directory using gzip -9
+        zip_cmd = f"tar -cf - {dir_name} | gzip -9 > {zp_fn}"
+        try:
+            subprocess.run(zip_cmd, shell=True, check=True)
+            self._log.info(f"0: stor_fn={zp_fn}")
+        except subprocess.CalledProcessError as e:
+            self._log.critical(f"2: failed zip for store dir")
+            raise debug_exc(e,"2",{"cml":zip_cmd, "stderr":e.stderr})
+
+        #Remove the non-compressed directory
+        #shutil.rmtree(dir_name)
+
+'''
+if __name__ == "__main__":
+    db = prizepicks_db()
+    db._db_name = "pp_dev"
+    db.store_and_purge()
+'''

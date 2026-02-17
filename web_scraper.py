@@ -39,7 +39,6 @@ known_leagues = {
     "TENNIS":5,
 }
 
-
 #headers I pulled from web browser after logging into prizepicks and navigating the site
 lgin_hdrs = '''\
     -H 'Host: api.prizepicks.com'\
@@ -115,7 +114,7 @@ def get_prizepicks(league, ppdb):
     league_num = known_leagues.get(league.upper())
 
     if league_num is None:
-        return 1
+        raise debug_exc(Exception("Invalid League"), "1", {"league":league}, log_prefix)
     
     api_call = f"https://api.prizepicks.com/projections?league_id={league_num}&per_page={page_num}&single_stat={single_stat}&game_mode={game_mode}"
     

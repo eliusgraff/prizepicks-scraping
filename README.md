@@ -2,7 +2,7 @@
 ---GETTING STARTED---
 
 0) Download and set up mysql database. Keep track of the root username and password
-    If you are going to store some tables in an non-default location (like on another drive in system), then you will need to add the below into your mysql options file:
+    If you are going to store some tables in an non-default location (like on another drive in system), then you will need to add the below into your mysql options file (in my case it is '/etc/my.cnf'):
         innodb_directories =/path/to/directory
     *This article here was exactly what I spent many hours trying to figure out: https://moxio.com/blog/moving-individual-mysql-tables-on-disk/
     **On Fedora Linux I had an issue using a different directory while SELinux was enabled, so if that is causing issues, then disable that...

@@ -85,7 +85,6 @@ class debug_exc (Exception):
         self.trace_back = e.__traceback__#traceback.format_stack()
         self.data_dict = dd
         self.prefix = p
-        global log_path
         self.file_path = os.path.join(log_path,f"SNAP_{self.prefix}_{dt.now().strftime('%Y-%m-%d_%H-%M-%S')}.txt")
 
     '''
@@ -105,7 +104,6 @@ class debug_exc (Exception):
                 f.write(f"{k} : {v}\n")
 
         return fn
-
 
 def print_dict(my_dict):
     for k,v in my_dict.items():
