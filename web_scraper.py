@@ -3,6 +3,7 @@ from utils import debug_exc
 import subprocess
 import pycurl
 from io import BytesIO
+import certifi
 import json
 from requests import exceptions as http_exceptions
 import time
@@ -197,8 +198,7 @@ def access_denial (api_ep):
     
     for i, hdrs in enumerate([lgin_hdrs,direct_hdrs]):
         curl_req = _create_curl_request(api_ep) + hdrs
-        #print("Sleeping for 2 sec to avoid spam")
-        time.sleep(2)
+        time.sleep(5)
         wp, ec = exec_curl(curl_req)
 
         if is_error:
@@ -212,9 +212,7 @@ def access_denial (api_ep):
         else:
             LOG.warning(f"01: curl_step_fail={i} ec={ec}")
             print(f"Command failed with error code: {ec}. Trying next iteration.")
-            print("------------------------Next Iter-----------------------------")
         
-    #print("******Could not recover with new headers alone, attempting pycurl******")
     return pycurl_curl(api_ep)
         
 #When a curl command with base headers generates bad HTTP status send the curl_str and status code to this function and it will call recovery function if it exists
@@ -228,7 +226,7 @@ def handle_error(api_ep, HTTP_status_code):
 def pycurl_curl(api_ep):
     #Uses pycurl library to send request to prizepicks endpoint with the headers it seems to accept
 
-    LOG.info(f"00: ***Entering EC 403 Recovery***")
+    LOG.info(f"00: ***Entering Pycurl 403 Recovery***")
     #print("Waiting 3 sec before starting this to avoid spam")
     time.sleep(3)
 
@@ -236,10 +234,9 @@ def pycurl_curl(api_ep):
 
         #Turn header string into a list to send to pycurl
         c_headers = hdrs.replace("'","").split("    -H ")[1:]
-        #print(f"Attempting recovery with headers (supposed to be in a list):")
-        #for h in c_headers: print(h)
-        print("\nSleeping for 2 sec")
-        time.sleep(2)
+
+        sleep = 5
+        time.sleep(sleep)
         
         #Setup and execute pycurl command
         buffer = BytesIO()
@@ -250,6 +247,7 @@ def pycurl_curl(api_ep):
         c_send.perform()
         resp_code = c_send.getinfo(c_send.RESPONSE_CODE)
         c_send.close()
+        
         wp = buffer.getvalue().decode('iso-8859-1')
         
         global is_error

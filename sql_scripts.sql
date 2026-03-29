@@ -36,3 +36,29 @@ DELIMITER ;
 SET SQL_SAFE_UPDATES = 0;
 CALL ADD_PARSENUMS();
 SET SQL_SAFE_UPDATES = 1;
+
+
+--script to rename cold tables to 'archive' and create hot data tables for those  on SSD and move hot data to those tables--
+
+rename table `game` to `game_archive`;
+
+CREATE TABLE `game` (
+  `id` int NOT NULL,
+  `external_game_id` varchar(64) DEFAULT NULL,
+  `away` varchar(64) DEFAULT NULL,
+  `home` varchar(64) DEFAULT NULL,
+  `status` varchar(32) DEFAULT NULL,
+  `start_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/pp_ssd';
+
+rename table `projection_timeseries` to `projection_timeseries_archive`;
+
+CREATE TABLE `projection_timeseries` (
+  `projection_id` int NOT NULL,
+  `name` varchar(45) DEFAULT NULL,
+  `val` float NOT NULL,
+  `parsenum` int DEFAULT NULL,
+  KEY `id_index` (`projection_id`),
+  KEY `parse_index` (`parsenum`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci DATA DIRECTORY='/mnt/pp_ssd';

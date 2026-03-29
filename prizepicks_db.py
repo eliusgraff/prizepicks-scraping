@@ -71,8 +71,7 @@ class prizepicks_db:
         self._config = utils.get_secret("mysql")
         self._create_log()
         self._set_archive_path()   
-        input("Ignoring schema checking for development. Also, need to fix the duration of archive in send to archive function before going to prod")
-        #self.compare_sql_schema()
+        self.compare_sql_schema()
         self._sql_conn = self._create_db_connection()
         self._sql_cursor = self._sql_conn.cursor()
         self._set_external_data_names()        
@@ -304,7 +303,7 @@ class prizepicks_db:
         #Pull in all the data from the DB for the interested timeseries and turn it into a dict
         my_q =f"""
         SELECT * 
-        FROM projection_timeseries_archive 
+        FROM projection_timeseries 
         WHERE projection_id in ({','.join([str(proj_id) for proj_id in proj_ids])}) 
         ORDER BY parsenum DESC;
         """
@@ -1079,7 +1078,7 @@ class prizepicks_db:
             raise debug_exc(e,"2",{"cml":zip_cmd, "stderr":e.stderr})
 
         #Remove the non-compressed directory
-        #shutil.rmtree(dir_name)
+        shutil.rmtree(dir_name)
 
 '''
 if __name__ == "__main__":

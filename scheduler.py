@@ -62,8 +62,8 @@ class prizepicks_scheduler:
         "sts":SIX_HOURS,
         "dmp_sch":TEN_MINS,
         "bu":ONE_DAY,
-        "archive":THREE_HOURS, #TWELVE_HOURS
-        "store_and_purge":THIRTY_MINS #FOUR_WEEKS
+        "archive":TWELVE_HOURS,
+        "store_and_purge":FOUR_WKS
     }
 
     loop_wakeup_time = FIFTEEN_SEC #how often the loop should wake up to check for new requests
@@ -88,7 +88,6 @@ class prizepicks_scheduler:
     #Constructor for the scheduler class. 
     def __init__(self):
 
-        input("archive time needs to be moved back to 12 hours before prod")
         print("Setting up Scheduler class...")
 
         self._create_loggers()
