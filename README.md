@@ -1,4 +1,13 @@
 # PrizePicks scraping
+
+---Retiring this project---
+Over the past year and a half or so while I learned a lot and made a lot of progress toward my goal, there is no practical way to continuously and reliably get the data I
+need to do anything interesting with it. It seems that every few days when my bot is detected and without a lot more work, it is going to keep being detected. Even if I 
+did all that work there is nothing stopping PerimeterX or Cloudflare from changing again and again forcing me to keep up with a project that is supposed to be about 
+databases and data analytics (with a small amount of system design). The past year and a half has almost entirely been about web scraping, which is not my interest or 
+focus. I hate to say I've given up, but I need to spend my time doing things I love, not banging my head against a brick wall that full companies of people smarter than I
+built and continue to improve upon every single day. 
+
 ---GETTING STARTED---
 
 0) Download and set up mysql database. Keep track of the root username and password
